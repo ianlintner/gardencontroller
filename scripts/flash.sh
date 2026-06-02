@@ -11,9 +11,19 @@ FQBN="arduino:renesas_uno:unor4wifi"
 
 PORT="${1:-}"
 if [[ -z "$PORT" ]]; then
-  PORT=$(arduino-cli board list --format json 2>/dev/null \
-    | python3 -c 'import sys,json;[print(p["port"]["address"]) for p in json.load(sys.stdin) if "renesas" in json.dumps(p).lower() or "uno" in json.dumps(p).lower()]' \
-    | head -1)
+  # `board list --format json` returns {"detected_ports":[...]}. Prefer a port
+  # whose matching board fqbn is the R4; fall back to a renesas/uno match.
+  PORT=$(arduino-cli board list --format json 2>/dev/null | python3 -c '
+import sys, json
+ports = json.load(sys.stdin).get("detected_ports", [])
+for p in ports:
+    if any("renesas_uno" in (b.get("fqbn") or "") for b in (p.get("matching_boards") or [])):
+        print(p["port"]["address"]); break
+else:
+    for p in ports:
+        if "renesas" in json.dumps(p).lower() or "uno r4" in json.dumps(p).lower():
+            print(p["port"]["address"]); break
+')
 fi
 [[ -z "$PORT" ]] && { echo "no UNO R4 detected; pass the port explicitly: ./scripts/flash.sh /dev/cu.usbmodemXXXX" >&2; exit 1; }
 

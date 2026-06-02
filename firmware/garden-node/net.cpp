@@ -111,13 +111,24 @@ int netRssi() { return WiFi.RSSI(); }
 bool netEnsureWifi() {
   if (WiFi.status() == WL_CONNECTED) return true;
   netSetHealth(false);
-  Serial.print("WiFi connecting to "); Serial.println(SECRET_WIFI_SSID);
+  if (WiFi.status() == WL_NO_MODULE) { Serial.println("WiFi module not found"); return false; }
+  Serial.print("WiFi connecting to '"); Serial.print(SECRET_WIFI_SSID); Serial.println("'");
   WiFi.begin(SECRET_WIFI_SSID, SECRET_WIFI_PASS);
-  // Bounded wait so the loop stays responsive; the loop retries next cycle.
-  for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) delay(500);
-  bool ok = WiFi.status() == WL_CONNECTED;
-  if (ok) { Serial.print("WiFi up, IP="); Serial.println(WiFi.localIP()); }
-  return ok;
+  for (int i = 0; i < 30 && WiFi.status() != WL_CONNECTED; i++) delay(500);  // up to 15s
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi up, IP="); Serial.print(WiFi.localIP());
+    Serial.print(" RSSI="); Serial.println(WiFi.RSSI());
+    return true;
+  }
+  // Diagnostics: status code + what the (2.4GHz-only) radio can actually see.
+  Serial.print("WiFi failed, status="); Serial.println(WiFi.status());
+  int n = WiFi.scanNetworks();
+  Serial.print("visible networks ("); Serial.print(n); Serial.println("):");
+  for (int i = 0; i < n; i++) {
+    Serial.print("  '"); Serial.print(WiFi.SSID(i));
+    Serial.print("'  RSSI="); Serial.println(WiFi.RSSI(i));
+  }
+  return false;
 }
 
 // OAuth2 client-credentials grant against roauth2. Caches until ~60s before exp.
@@ -125,6 +136,7 @@ static bool ensureToken() {
   if (accessToken.length() && (long)(tokenExpiresAtMs - millis()) > 0) return true;
 
   HttpClient http(tls, OAUTH_TOKEN_HOST, HTTPS_PORT);
+  http.setHttpResponseTimeout(15000);   // give TLS + response up to 15s
   // client_secret_basic: credentials go in the Authorization header, not the body.
   String basic = base64Encode(String(SECRET_OAUTH_CLIENT_ID) + ":" + SECRET_OAUTH_CLIENT_SECRET);
   String body = String("grant_type=client_credentials&audience=") + OAUTH_AUDIENCE
@@ -142,13 +154,20 @@ static bool ensureToken() {
   int code = http.responseStatusCode();
   String resp = http.responseBody();
   http.stop();
-  if (code != 200) {
-    Serial.print("token HTTP "); Serial.println(code);
+  if (code != 200) { Serial.print("token HTTP "); Serial.println(code); return false; }
+
+  // roauth2 replies with Transfer-Encoding: chunked and ArduinoHttpClient does
+  // not strip the chunk-size line, so the body looks like "387\r\n{json...}".
+  // Parse from the first '{'; ArduinoJson ignores the trailing chunk markers.
+  int brace = resp.indexOf('{');
+  JsonDocument doc;
+  DeserializationError perr = (brace >= 0)
+      ? deserializeJson(doc, resp.c_str() + brace)
+      : DeserializationError(DeserializationError::InvalidInput);
+  if (perr) {
+    Serial.print("token parse error: "); Serial.println(perr.c_str());
     return false;
   }
-
-  JsonDocument doc;
-  if (deserializeJson(doc, resp)) { Serial.println("token parse error"); return false; }
   accessToken = (const char*)doc["access_token"];
   long expiresIn = doc["expires_in"] | 3600;
   tokenExpiresAtMs = millis() + (unsigned long)(expiresIn > 60 ? expiresIn - 60 : expiresIn) * 1000UL;
@@ -186,6 +205,7 @@ bool netPublish(const Reading& r) {
   if (!ensureToken())   { netSetHealth(false); return false; }
 
   HttpClient http(tls, INGEST_HOST, HTTPS_PORT);
+  http.setHttpResponseTimeout(15000);   // R4's first TLS handshake can be slow
   String body = buildPayload(r);
 
   http.beginRequest();
