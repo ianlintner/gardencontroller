@@ -12,6 +12,9 @@
 #define OAUTH_TOKEN_HOST "roauth2.cat-herding.net"
 #define OAUTH_TOKEN_PATH "/oauth/token"   // from /.well-known/openid-configuration
 #define OAUTH_AUDIENCE   "garden-ingest"
+#define OAUTH_SCOPE      "garden:write"
+// roauth2 clients use token_endpoint_auth_method=client_secret_basic, i.e. the
+// client_id/secret go in an HTTP Basic Authorization header, NOT the form body.
 
 #define INGEST_HOST "garden.cat-herding.net"
 #define INGEST_PATH "/ingest"

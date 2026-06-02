@@ -10,6 +10,23 @@
 static WiFiSSLClient tls;
 static ArduinoLEDMatrix matrix;
 
+// Minimal base64 encoder for the OAuth2 HTTP Basic auth header.
+static String base64Encode(const String& in) {
+  static const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String out;
+  int n = in.length();
+  for (int i = 0; i < n; i += 3) {
+    uint32_t b = (uint8_t)in[i] << 16;
+    if (i + 1 < n) b |= (uint8_t)in[i + 1] << 8;
+    if (i + 2 < n) b |= (uint8_t)in[i + 2];
+    out += T[(b >> 18) & 0x3F];
+    out += T[(b >> 12) & 0x3F];
+    out += (i + 1 < n) ? T[(b >> 6) & 0x3F] : '=';
+    out += (i + 2 < n) ? T[b & 0x3F] : '=';
+  }
+  return out;
+}
+
 // Cached OAuth2 access token.
 static String accessToken;
 static unsigned long tokenExpiresAtMs = 0;  // millis() when token goes stale
@@ -56,13 +73,14 @@ static bool ensureToken() {
   if (accessToken.length() && (long)(tokenExpiresAtMs - millis()) > 0) return true;
 
   HttpClient http(tls, OAUTH_TOKEN_HOST, HTTPS_PORT);
-  String body = String("grant_type=client_credentials")
-              + "&client_id="     + SECRET_OAUTH_CLIENT_ID
-              + "&client_secret=" + SECRET_OAUTH_CLIENT_SECRET
-              + "&audience="      + OAUTH_AUDIENCE;
+  // client_secret_basic: credentials go in the Authorization header, not the body.
+  String basic = base64Encode(String(SECRET_OAUTH_CLIENT_ID) + ":" + SECRET_OAUTH_CLIENT_SECRET);
+  String body = String("grant_type=client_credentials&audience=") + OAUTH_AUDIENCE
+              + "&scope=" + OAUTH_SCOPE;
 
   http.beginRequest();
   http.post(OAUTH_TOKEN_PATH);
+  http.sendHeader("Authorization", String("Basic ") + basic);
   http.sendHeader("Content-Type", "application/x-www-form-urlencoded");
   http.sendHeader("Content-Length", body.length());
   http.beginBody();
