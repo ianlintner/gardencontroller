@@ -52,7 +52,8 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: ./ingest
-          platforms: linux/amd64
+          # AKS nodes are arm64; amd64 included for portability/local dev.
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
