@@ -1,0 +1,142 @@
+{
+  "uid": "garden-overview",
+  "title": "Garden Overview",
+  "tags": ["garden", "sensors"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "device_id",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(garden_push_timestamp_seconds, device_id)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "Air", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries", "title": "Air temperature (°C)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "celsius" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "garden_air_temperature_celsius{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}} / {{location}}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Air humidity (%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "garden_air_humidity_percent{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}} / {{location}}" }
+      ]
+    },
+    {
+      "type": "row", "title": "Soil", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "type": "timeseries", "title": "Soil moisture (%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 10 },
+      "targets": [
+        { "refId": "A", "expr": "garden_soil_moisture_percent{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}} / {{probe}}" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Soil moisture now",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null }, { "color": "orange", "value": 20 }, { "color": "green", "value": 40 } ] } },
+        "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "targets": [
+        { "refId": "A", "expr": "garden_soil_moisture_percent{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}} / {{probe}}" }
+      ]
+    },
+    {
+      "type": "row", "title": "Rain", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "type": "timeseries", "title": "Rain intensity (%)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 19 },
+      "targets": [
+        { "refId": "A", "expr": "garden_rain_intensity_percent{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}} / {{location}}" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Raining now",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "Dry", "color": "green" }, "1": { "text": "Rain", "color": "blue" } } } ] },
+        "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "targets": [
+        { "refId": "A", "expr": "garden_rain_detected{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}}" }
+      ]
+    },
+    {
+      "type": "row", "title": "Board health", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+    },
+    {
+      "type": "stat", "title": "WiFi RSSI (dBm)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "dBm" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "garden_board_rssi_dbm{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}}" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Seconds since last push",
+      "description": "High = board offline. Alerts if > 300s.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s",
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 120 }, { "color": "red", "value": 300 } ] } },
+        "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "time() - garden_push_timestamp_seconds{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}}" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Board uptime",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "garden_board_uptime_seconds{device_id=~\"$device_id\"}",
+          "legendFormat": "{{device_id}}" }
+      ]
+    }
+  ]
+}

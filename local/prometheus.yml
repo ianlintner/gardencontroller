@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s        # snappy for local testing (prod is 30s)
+  scrape_timeout: 4s
+
+scrape_configs:
+  - job_name: pushgateway
+    honor_labels: true       # keep the pushed job/instance labels verbatim
+    static_configs:
+      - targets: ["pushgateway:9091"]

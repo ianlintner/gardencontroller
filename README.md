@@ -59,6 +59,25 @@ cp .env.example .env            # fill in WiFi + OAuth client creds
 For Phase 2 uploads, set `ENABLE_UPLOAD 1` in `firmware/garden-node/config.h`
 before flashing.
 
+## Local test stack (no hardware, no cluster)
+
+Run the whole pipeline on your machine and drive it with a device simulator:
+
+```bash
+docker compose -f local/docker-compose.yml up -d --build
+python scripts/simulate.py --devices 3      # simulate 3 boards with drifting sensors
+open http://localhost:3000                  # Grafana → "Garden Overview" (anon admin)
+docker compose -f local/docker-compose.yml down   # stop
+```
+
+`local/` runs ingest + Pushgateway + Prometheus + Grafana (the real dashboard,
+provisioned). No istio/JWT locally, so the simulator posts without auth. The same
+simulator can hit the real cloud path (OAuth2 from `.env`):
+
+```bash
+python scripts/simulate.py --cloud          # token via roauth2 → garden.cat-herding.net
+```
+
 ## Verify end-to-end
 
 ```bash
