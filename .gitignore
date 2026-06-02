@@ -1,0 +1,24 @@
+# Secrets — never commit. Copy arduino_secrets.h.example → arduino_secrets.h
+firmware/garden-node/arduino_secrets.h
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Arduino build artifacts
+build/
+*.hex
+*.bin
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code harness scaffolding
+.remember/
+.claude/
