@@ -45,7 +45,25 @@ Live in the Flux GitOps repo `~/projects/bigboy/k8s` (so Flux reconciles them):
 4. **Push** the bigboy repo — Flux applies automatically. (Not done here; this
    repo only authored the files.)
 
+## Secrets & flashing the board
+
+`.env` (gitignored) is the single source of truth. `arduino_secrets.h` is
+generated from it and is also gitignored — only the `*.example` files are committed.
+
+```bash
+cp .env.example .env            # fill in WiFi + OAuth client creds
+./scripts/gen-arduino-secrets.sh  # → firmware/garden-node/arduino_secrets.h
+./scripts/flash.sh              # gen secrets + compile + upload (auto-detects port)
+```
+
+For Phase 2 uploads, set `ENABLE_UPLOAD 1` in `firmware/garden-node/config.h`
+before flashing.
+
 ## Verify end-to-end
 
-See the "Verification" section of the plan: token → curl `/ingest` → Pushgateway
-`/metrics` → Prometheus query → Grafana dashboard → board flash.
+```bash
+./scripts/verify.sh             # token → POST /ingest, using .env (no board needed)
+```
+
+Then check the **Garden Overview** dashboard in Grafana. Full path:
+token → `/ingest` → Pushgateway `/metrics` → Prometheus → Grafana → board flash.

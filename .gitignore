@@ -1,4 +1,6 @@
-# Secrets — never commit. Copy arduino_secrets.h.example → arduino_secrets.h
+# Secrets — never commit.
+# .env is the single source of truth; arduino_secrets.h is generated from it.
+.env
 firmware/garden-node/arduino_secrets.h
 
 # Python
