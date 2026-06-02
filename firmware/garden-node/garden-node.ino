@@ -32,6 +32,10 @@ void setup() {
 }
 
 void loop() {
+#if ENABLE_UPLOAD
+  netDisplayTick();   // advance the LED matrix animation every iteration (non-blocking)
+#endif
+
   if (millis() - lastSampleMs < SAMPLE_INTERVAL_MS) return;
   lastSampleMs = millis();
 

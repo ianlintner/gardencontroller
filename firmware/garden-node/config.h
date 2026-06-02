@@ -25,6 +25,10 @@
 // every 30s, so faster pushes are wasted. 60s is a good default for a garden.
 #define SAMPLE_INTERVAL_MS 60000UL
 
+// LED matrix plant animation: ms per growth frame (higher = slower growth).
+// ~7 frames, so 900ms ≈ a 6s grow-and-loop cycle.
+#define PLANT_FRAME_MS 900UL
+
 // ─── Feature flags ───────────────────────────────────────────────────────────
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print
 // to Serial so you can calibrate. Flip to 1 once net.cpp is wired (Phase 2).
