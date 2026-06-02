@@ -69,10 +69,12 @@ void sensorsPrint(const Reading& r) {
 // docs/calibration.md for the procedure.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TODO(you) #1: calibrate. SOIL_RAW_DRY = reading in dry air/soil,
-// SOIL_RAW_WET = reading submerged in water. Decide clamping/smoothing.
-static const int SOIL_RAW_DRY = 13000;  // ← measure me
-static const int SOIL_RAW_WET = 5000;   // ← measure me
+// Calibrated 2026-06 for the kit capacitive probe at 5V (dry=high, wet=low).
+// Measured: dry towel/air ~16374 (rails near the 14-bit max at 5V), wet towel
+// ~11000. map() handles the high→low direction. Re-measure in real soil to
+// refine; powering at 3.3V instead of 5V would avoid the dry-end ADC railing.
+static const int SOIL_RAW_DRY = 16374;
+static const int SOIL_RAW_WET = 11000;
 
 float soilMoisturePercent(int raw) {
   long pct = map((long)raw, SOIL_RAW_DRY, SOIL_RAW_WET, 0, 100);
