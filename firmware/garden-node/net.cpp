@@ -191,9 +191,11 @@ static String buildPayload(const Reading& r) {
     s["raw"]          = r.soil[i].raw;
     s["percent"]      = r.soil[i].percent;
   }
+#if ENABLE_RAIN
   rd["rain_raw"]      = r.rainRaw;
   rd["rain_percent"]  = r.rainPercent;
   rd["rain_detected"] = r.rainDetected;
+#endif
   JsonObject board = doc["board"].to<JsonObject>();
   board["rssi_dbm"]       = netRssi();
   board["uptime_seconds"] = (long)(millis() / 1000UL);

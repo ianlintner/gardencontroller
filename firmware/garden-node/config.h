@@ -37,15 +37,16 @@
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
 #define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)
 #define DHT_TYPE      DHT22 // change to DHT11 if that's what the kit shipped
-#define RAIN_PIN_A    A1    // rain-drop analog (intensity)
-#define RAIN_PIN_D    3     // rain-drop digital comparator (optional)
-#define SENSOR_POWER_PIN 4  // gates power to soil/rain sensors (HIGH = on); -1 to disable
+#define ENABLE_RAIN   0     // no rain sensor connected (A1 is a 2nd soil probe)
+#define RAIN_PIN_A    A1    // (only used when ENABLE_RAIN=1)
+#define RAIN_PIN_D    3     // (only used when ENABLE_RAIN=1)
+#define SENSOR_POWER_PIN 4  // gates power to soil sensors (HIGH = on); -1 to disable
 
 // Soil moisture probes. Add rows for more probes (one analog pin each: A0..A5).
 // `probe` is the per-probe label; keep names short and stable.
 struct SoilProbe { const char* probe; uint8_t pin; };
 static const SoilProbe SOIL_PROBES[] = {
   { "bed1", A0 },
-  // { "bed2", A2 },
+  { "bed2", A1 },
 };
 static const size_t SOIL_PROBE_COUNT = sizeof(SOIL_PROBES) / sizeof(SOIL_PROBES[0]);

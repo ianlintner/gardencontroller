@@ -21,7 +21,9 @@ void sensorsBegin() {
     pinMode(SENSOR_POWER_PIN, OUTPUT);
     digitalWrite(SENSOR_POWER_PIN, LOW);  // off until a read
   }
+#if ENABLE_RAIN
   pinMode(RAIN_PIN_D, INPUT);
+#endif
 }
 
 Reading sensorsRead() {
@@ -39,9 +41,13 @@ Reading sensorsRead() {
     r.soil[i] = { SOIL_PROBES[i].probe, raw, soilMoisturePercent(raw) };
   }
 
+#if ENABLE_RAIN
   r.rainRaw      = readAdc(RAIN_PIN_A);
   r.rainPercent  = rainIntensityPercent(r.rainRaw);
   r.rainDetected = classifyRainDetected(r.rainRaw);
+#else
+  r.rainRaw = 0; r.rainPercent = 0; r.rainDetected = false;
+#endif
 
   if (SENSOR_POWER_PIN >= 0) digitalWrite(SENSOR_POWER_PIN, LOW);
   return r;
@@ -56,9 +62,11 @@ void sensorsPrint(const Reading& r) {
     Serial.print("] raw="); Serial.print(r.soil[i].raw);
     Serial.print(" pct="); Serial.println(r.soil[i].percent);
   }
+#if ENABLE_RAIN
   Serial.print("  rain raw="); Serial.print(r.rainRaw);
   Serial.print(" pct="); Serial.print(r.rainPercent);
   Serial.print(" detected="); Serial.println(r.rainDetected);
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
