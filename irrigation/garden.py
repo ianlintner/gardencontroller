@@ -233,3 +233,42 @@ def do_water(tuya, *, zone, minutes, watered_today, dry_run) -> dict:
     on = bool(st.get(switch_dp) or st.get("switch_1"))
     return {"zone": zone["name"], "minutes": m, "ok": on,
             "note": "watering started" if on else "WARNING: valve did not confirm ON"}
+
+
+def http_get_json(url: str) -> dict:
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+
+def _prom_scalar(get_json, prom_url, query):
+    url = prom_url.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": query})
+    res = get_json(url)["data"]["result"]
+    return float(res[0]["value"][1]) if res else None
+
+
+def read_sensors(zone, *, prom_url, now, get_json=http_get_json, max_age_s=900) -> dict:
+    dev, probe = zone["prom_device_id"], zone["probe"]
+    sel = f'device_id="{dev}"'
+    soil = _prom_scalar(get_json, prom_url,
+                        f'garden_soil_moisture_percent{{{sel},probe="{probe}"}}')
+    temp = _prom_scalar(get_json, prom_url, f'garden_air_temperature_celsius{{{sel}}}')
+    pushed = _prom_scalar(get_json, prom_url, f'garden_push_timestamp_seconds{{{sel}}}')
+    age = (now - pushed) if pushed is not None else float("inf")
+    return {"zone": zone["name"], "soil_pct": soil, "temp_c": temp,
+            "stale": age > max_age_s, "age_s": age}
+
+
+def read_weather(*, lat, lon, get_json=http_get_json) -> dict:
+    params = {"latitude": lat, "longitude": lon,
+              "hourly": "precipitation,precipitation_probability",
+              "daily": "et0_fao_evapotranspiration,temperature_2m_max",
+              "forecast_days": 1, "timezone": "UTC"}
+    url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode(params)
+    d = get_json(url)
+    precip = d["hourly"]["precipitation"][:12]
+    prob = d["hourly"]["precipitation_probability"][:12]
+    return {"precip_12h_mm": float(sum(precip)),
+            "precip_prob_pct": float(max(prob) if prob else 0),
+            "et0_mm": float(d["daily"]["et0_fao_evapotranspiration"][0]),
+            "temp_high_c": float(d["daily"]["temperature_2m_max"][0])}
