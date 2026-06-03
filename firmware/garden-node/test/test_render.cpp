@@ -41,9 +41,27 @@ static void test_render_value_slide() {
     assert(bar_lit_rows(f) <= 1);
 }
 
+static void test_select_slide() {
+    assert(select_slide(0, 5000, 5) == 0);
+    assert(select_slide(4999, 5000, 5) == 0);
+    assert(select_slide(5000, 5000, 5) == 1);
+    assert(select_slide(25000, 5000, 5) == 0);   // wraps
+    assert(select_slide(1234, 0, 5) == 0);        // guard: slide_ms 0
+    assert(select_slide(1234, 5000, 0) == 0);     // guard: n 0
+}
+static void test_static_frames_exist() {
+    Frame f;
+    render_plant(f, 0); assert(count_lit(f) >= 1);
+    render_x(f);        assert(count_lit(f) >= 6);
+    render_seed(f);     assert(count_lit(f) >= 1);
+    int frames = PLANT_FRAMES; assert(frames >= 2);
+}
+
 int main() {
     test_bar_level();
     test_render_value_slide();
+    test_select_slide();
+    test_static_frames_exist();
     printf("all render tests passed\n");
     return 0;
 }

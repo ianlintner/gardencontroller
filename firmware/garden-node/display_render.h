@@ -60,4 +60,36 @@ inline void render_value_slide(Frame f, Icon ic, float value, float lo, float hi
     draw_bar(f, valid ? bar_level(value, lo, hi) : 0, valid);
 }
 
+static const char* const PLANT_ART[][ROWS] = {
+  { "            ","            ","            ","            ","            ","            ","            ","     ##     " },
+  { "            ","            ","            ","            ","            ","            ","     ##     ","     ##     " },
+  { "            ","            ","            ","            ","            ","     ##     ","    ####    ","     ##     " },
+  { "            ","            ","            ","            ","     ##     ","    ####    ","     ##     ","     ##     " },
+  { "            ","            ","            ","     ##     ","   # ## #   ","    ####    ","     ##     ","     ##     " },
+  { "            ","            ","     ##     ","   # ## #   ","    ####    ","   # ## #   ","     ##     ","     ##     " },
+  { "    ####    ","   #    #   ","    ####    ","   # ## #   ","    ####    ","     ##     ","     ##     ","     ##     " },
+};
+constexpr int PLANT_FRAMES = (int)(sizeof(PLANT_ART) / sizeof(PLANT_ART[0]));
+
+static const char* const X_ART[ROWS] = {
+  "  #      #  ","   #    #   ","    #  #    ","     ##     ","     ##     ","    #  #    ","   #    #   ","  #      #  ",
+};
+
+inline void render_art12(Frame f, const char* const art[ROWS]) {
+    clear(f);
+    for (int y = 0; y < ROWS; y++)
+        for (int x = 0; x < COLS && art[y][x]; x++) f[y][x] = (art[y][x] != ' ') ? 1 : 0;
+}
+inline void render_plant(Frame f, int frame) {
+    if (frame < 0) frame = 0;
+    render_art12(f, PLANT_ART[frame % PLANT_FRAMES]);
+}
+inline void render_x(Frame f)    { render_art12(f, X_ART); }
+inline void render_seed(Frame f) { render_plant(f, 0); }
+
+inline int select_slide(unsigned long elapsed_ms, unsigned long slide_ms, int n) {
+    if (slide_ms == 0 || n <= 0) return 0;
+    return (int)((elapsed_ms / slide_ms) % (unsigned long)n);
+}
+
 }  // namespace gdisplay
