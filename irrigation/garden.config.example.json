@@ -1,0 +1,23 @@
+{
+  "lat": 0.0,
+  "lon": 0.0,
+  "et0_baseline_mm": 4.0,
+  "rain_skip_mm": 2.0,
+  "rain_skip_prob_pct": 60.0,
+  "heat_threshold_c": 32.0,
+  "midday_cap_min": 5,
+  "prometheus_url": "http://prometheus.default.svc.cluster.local:9090",
+  "zones": [
+    {
+      "name": "zone1",
+      "tuya_device_id": "REPLACE_WITH_DEVICE_ID",
+      "prom_device_id": "garden-node-1",
+      "probe": "bed1",
+      "target_pct": 40.0,
+      "min_per_pct": 0.5,
+      "max_per_run": 15,
+      "max_per_day": 30,
+      "min_run": 1
+    }
+  ]
+}
