@@ -27,35 +27,57 @@ static void incrementFailCount() {
     if (n < 255) writeFailCount(n + 1);
 }
 
-// Fetch a short text body from an HTTPS URL. Returns trimmed body or "" on error.
-// Used for the version check (version.txt is a single short line).
-// GitHub releases/latest/download/ may 302-redirect; WiFiSSLClient follows one hop.
+// Fetch a short text body from an HTTPS URL.
+// Follows a single cross-host redirect (needed for GitHub releases/latest/download/).
 static String fetchString(const char* url) {
-    WiFiSSLClient client;
     String u(url);
-    int hostStart = u.indexOf("//") + 2;
-    int pathStart = u.indexOf('/', hostStart);
-    String host = u.substring(hostStart, pathStart);
-    String path = u.substring(pathStart);
+    // Try up to 2 hops (one redirect)
+    for (int hop = 0; hop < 2; hop++) {
+        int hostStart = u.indexOf("//") + 2;
+        int pathStart = u.indexOf('/', hostStart);
+        String host = u.substring(hostStart, pathStart);
+        String path = (pathStart >= 0) ? u.substring(pathStart) : String("/");
 
-    if (!client.connect(host.c_str(), 443)) return "";
-    client.print(String("GET ") + path + " HTTP/1.1\r\n" +
-                 "Host: " + host + "\r\n" +
-                 "Connection: close\r\n\r\n");
-    unsigned long t0 = millis();
-    while (!client.available() && millis() - t0 < 10000) delay(10);
-    // Skip HTTP headers — read until blank line
-    String line;
-    while (client.available()) {
-        line = client.readStringUntil('\n');
-        if (line == "\r" || line == "") break;
+        WiFiSSLClient client;
+        if (!client.connect(host.c_str(), 443)) return "";
+        client.print(String("GET ") + path + " HTTP/1.1\r\n" +
+                     "Host: " + host + "\r\n" +
+                     "User-Agent: Arduino-garden-node/1.0\r\n" +
+                     "Connection: close\r\n\r\n");
+
+        unsigned long t0 = millis();
+        while (!client.available() && millis() - t0 < 10000) delay(10);
+
+        // Read status line
+        String statusLine = client.readStringUntil('\n');
+        statusLine.trim();
+        bool isRedirect = statusLine.indexOf(" 30") > 0;
+
+        // Read headers, capture Location if redirect
+        String location = "";
+        while (client.available()) {
+            String line = client.readStringUntil('\n');
+            line.trim();
+            if (line.length() == 0) break;   // blank line = end of headers
+            if (isRedirect && line.startsWith("Location:")) {
+                location = line.substring(9); location.trim();
+            }
+        }
+
+        if (isRedirect && location.length() > 0) {
+            client.stop();
+            u = location;   // follow redirect
+            continue;
+        }
+
+        // Read body
+        String body = "";
+        while (client.available()) body += (char)client.read();
+        client.stop();
+        body.trim();
+        return body;
     }
-    // Read body (version.txt is a single short line, no chunked encoding)
-    String body = "";
-    while (client.available()) body += (char)client.read();
-    client.stop();
-    body.trim();
-    return body;
+    return "";  // too many redirects
 }
 
 // ─── OTA check + apply ────────────────────────────────────────────────────────
