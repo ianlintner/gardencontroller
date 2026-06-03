@@ -58,6 +58,10 @@ static String fetchString(const char* url) {
     return body;
 }
 
+// ─── OTA check + apply ────────────────────────────────────────────────────────
+// Sequence: read fail count → fetch version.txt → compare → download/verify/apply
+// Only network-hiccup (empty version fetch) skips incrementing the fail counter;
+// all OTAUpdate error paths increment before returning false.
 bool otaCheckAndApply() {
     uint8_t fails = readFailCount();
     if (fails >= OTA_MAX_FAILURES) {
