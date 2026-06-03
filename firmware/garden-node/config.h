@@ -37,7 +37,7 @@
 // ─── Feature flags ───────────────────────────────────────────────────────────
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print
 // to Serial so you can calibrate. Flip to 1 once net.cpp is wired (Phase 2).
-#define ENABLE_UPLOAD 1
+#define ENABLE_UPLOAD 0
 
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
 #define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)

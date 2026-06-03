@@ -31,7 +31,7 @@ static String accessToken;
 static unsigned long tokenExpiresAtMs = 0;  // millis() when token goes stale
 
 void netBegin() {
-  displayBegin();
+  // displayBegin() already called unconditionally in setup(); nothing to do here.
 }
 
 int netRssi() { return WiFi.RSSI(); }
