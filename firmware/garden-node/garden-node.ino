@@ -12,6 +12,7 @@
 
 #include "config.h"
 #include "sensors.h"
+#include "display.h"
 #if ENABLE_UPLOAD
 #include "net.h"
 #endif
@@ -19,6 +20,7 @@
 static unsigned long lastSampleMs = 0;
 
 void setup() {
+  displayBegin();
   Serial.begin(115200);
   unsigned long t0 = millis();
   while (!Serial && millis() - t0 < 3000) {}  // wait briefly for USB serial
@@ -32,15 +34,18 @@ void setup() {
 }
 
 void loop() {
-#if ENABLE_UPLOAD
-  netDisplayTick();   // advance the LED matrix animation every iteration (non-blocking)
-#endif
+  displayTick();   // advance the LED matrix animation every iteration (non-blocking)
 
   if (millis() - lastSampleMs < SAMPLE_INTERVAL_MS) return;
   lastSampleMs = millis();
 
   Reading r = sensorsRead();
   sensorsPrint(r);
+  displaySetReadings(r.soil, SOIL_PROBE_COUNT, r.tempC, r.humidity, r.dhtOk);
+
+#if !ENABLE_UPLOAD
+  displaySetHealth(DISP_HEALTHY);   // bench: show the slideshow without networking
+#endif
 
 #if ENABLE_UPLOAD
   // TODO(you) #3: publish cadence + backoff policy.

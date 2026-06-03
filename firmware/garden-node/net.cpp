@@ -1,14 +1,13 @@
 #include "net.h"
 #include "config.h"
 #include "arduino_secrets.h"
+#include "display.h"
 
 #include <WiFiS3.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
-#include "Arduino_LED_Matrix.h"
 
 static WiFiSSLClient tls;
-static ArduinoLEDMatrix matrix;
 
 // Minimal base64 encoder for the OAuth2 HTTP Basic auth header.
 static String base64Encode(const String& in) {
@@ -31,86 +30,15 @@ static String base64Encode(const String& in) {
 static String accessToken;
 static unsigned long tokenExpiresAtMs = 0;  // millis() when token goes stale
 
-// ─── LED matrix display: growing plant (healthy) vs X (error) ────────────────
-// 12x8 monochrome. Frames are ASCII art ('#' = lit) so they're easy to tweak —
-// edit the art below to reshape the plant. Each row string is exactly 12 chars.
-
-// A plant growing from a seed up to a bloom, looped slowly when healthy.
-static const char PLANT[][8][13] = {
-  { "            ", "            ", "            ", "            ",
-    "            ", "            ", "            ", "     ##     " },  // seed
-  { "            ", "            ", "            ", "            ",
-    "            ", "            ", "     ##     ", "     ##     " },  // sprout
-  { "            ", "            ", "            ", "            ",
-    "            ", "     ##     ", "    ####    ", "     ##     " },  // first leaves
-  { "            ", "            ", "            ", "            ",
-    "     ##     ", "    ####    ", "     ##     ", "     ##     " },  // taller
-  { "            ", "            ", "            ", "     ##     ",
-    "   # ## #   ", "    ####    ", "     ##     ", "     ##     " },  // side leaves
-  { "            ", "            ", "     ##     ", "   # ## #   ",
-    "    ####    ", "   # ## #   ", "     ##     ", "     ##     " },  // bigger
-  { "    ####    ", "   #    #   ", "    ####    ", "   # ## #   ",
-    "    ####    ", "     ##     ", "     ##     ", "     ##     " },  // bloom
-};
-static const int PLANT_FRAMES = sizeof(PLANT) / sizeof(PLANT[0]);
-
-// Shown when something is wrong (WiFi/auth/publish failure).
-static const char X_GLYPH[8][13] = {
-  "  #      #  ", "   #    #   ", "    #  #    ", "     ##     ",
-  "     ##     ", "    #  #    ", "   #    #   ", "  #      #  ",
-};
-
-enum DispState { DISP_CONNECTING, DISP_HEALTHY, DISP_ERROR };
-static DispState _disp = DISP_CONNECTING;
-static int _frame = 0;
-static unsigned long _lastFrameMs = 0;
-static bool _needsRender = true;   // force a static re-render on state change
-
-static void renderAscii(const char art[8][13]) {
-  uint8_t f[8][12];
-  for (int y = 0; y < 8; y++)
-    for (int x = 0; x < 12; x++) f[y][x] = (art[y][x] != ' ') ? 1 : 0;
-  matrix.renderBitmap(f, 8, 12);
-}
-
-static void setDisp(DispState s) {
-  if (s == _disp) return;
-  _disp = s;
-  _frame = 0;
-  _lastFrameMs = 0;
-  _needsRender = true;
-}
-
-void netSetHealth(bool ok) { setDisp(ok ? DISP_HEALTHY : DISP_ERROR); }
-
-void netDisplayTick() {
-  unsigned long now = millis();
-  if (_disp == DISP_HEALTHY) {
-    // Advance the plant one frame every PLANT_FRAME_MS, then loop.
-    if (_needsRender || now - _lastFrameMs >= PLANT_FRAME_MS) {
-      _lastFrameMs = now;
-      _needsRender = false;
-      renderAscii(PLANT[_frame]);
-      _frame = (_frame + 1) % PLANT_FRAMES;
-    }
-  } else if (_needsRender) {
-    // Static glyphs; render once on entry to avoid flicker.
-    renderAscii(_disp == DISP_ERROR ? X_GLYPH : PLANT[0]);
-    _needsRender = false;
-  }
-}
-
 void netBegin() {
-  matrix.begin();
-  setDisp(DISP_CONNECTING);
-  netDisplayTick();   // show the seed while we connect
+  displayBegin();
 }
 
 int netRssi() { return WiFi.RSSI(); }
 
 bool netEnsureWifi() {
   if (WiFi.status() == WL_CONNECTED) return true;
-  netSetHealth(false);
+  displaySetHealth(DISP_ERROR);
   if (WiFi.status() == WL_NO_MODULE) { Serial.println("WiFi module not found"); return false; }
   Serial.print("WiFi connecting to '"); Serial.print(SECRET_WIFI_SSID); Serial.println("'");
   WiFi.begin(SECRET_WIFI_SSID, SECRET_WIFI_PASS);
@@ -204,7 +132,7 @@ static String buildPayload(const Reading& r) {
 
 bool netPublish(const Reading& r) {
   if (!netEnsureWifi()) return false;
-  if (!ensureToken())   { netSetHealth(false); return false; }
+  if (!ensureToken())   { displaySetHealth(DISP_ERROR); return false; }
 
   HttpClient http(tls, INGEST_HOST, HTTPS_PORT);
   http.setHttpResponseTimeout(15000);   // R4's first TLS handshake can be slow
@@ -225,10 +153,10 @@ bool netPublish(const Reading& r) {
 
   if (code == 401 || code == 403) {       // token rejected → force refresh next time
     accessToken = ""; tokenExpiresAtMs = 0;
-    netSetHealth(false);
+    displaySetHealth(DISP_ERROR);
     return false;
   }
   bool ok = code >= 200 && code < 300;
-  netSetHealth(ok);   // ok → plant resumes growing; else → X
+  displaySetHealth(ok ? DISP_HEALTHY : DISP_ERROR);
   return ok;
 }
