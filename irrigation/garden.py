@@ -302,3 +302,114 @@ def read_weather(*, lat, lon, get_json=http_get_json) -> dict:
             "precip_prob_pct": float(max(prob) if prob else 0),
             "et0_mm": float(d["daily"]["et0_fao_evapotranspiration"][0]),
             "temp_high_c": float(d["daily"]["temperature_2m_max"][0])}
+
+
+# ---------------------------------------------------------------------------
+# CLI — argparse subcommands
+# ---------------------------------------------------------------------------
+import argparse
+import sys
+
+
+def load_config(path):
+    return json.loads(Path(path).read_text())
+
+
+def _zone(cfg, name):
+    for z in cfg["zones"]:
+        if z["name"] == name:
+            return z
+    raise SystemExit(f"unknown zone: {name}")
+
+
+def _tuya_from_env():
+    return Tuya(os.environ["TUYA_CLIENT_ID"], os.environ["TUYA_CLIENT_SECRET"],
+                region=os.environ.get("TUYA_REGION", "us"))
+
+
+def cmd_sensors(args, cfg):
+    z = _zone(cfg, args.zone)
+    print(json.dumps(read_sensors(z, prom_url=cfg["prometheus_url"], now=time.time())))
+    return 0
+
+
+def cmd_weather(args, cfg):
+    print(json.dumps(read_weather(lat=cfg["lat"], lon=cfg["lon"])))
+    return 0
+
+
+def cmd_plan(args, cfg):
+    now = time.time()
+    st = State(args.state)
+    weather = read_weather(lat=cfg["lat"], lon=cfg["lon"])
+    out = []
+    for z in cfg["zones"]:
+        s = read_sensors(z, prom_url=cfg["prometheus_url"], now=now)
+        out.append(plan_zone(zone=z, cfg=cfg, soil_pct=s["soil_pct"], temp_c=s["temp_c"],
+                             stale=s["stale"], precip_12h_mm=weather["precip_12h_mm"],
+                             precip_prob_pct=weather["precip_prob_pct"], et0_mm=weather["et0_mm"],
+                             run_phase=args.phase, watered_today=st.watered_today(z["name"], now)))
+    st.set_pending(out, now=now)
+    print(json.dumps(out))
+    return 0
+
+
+def cmd_water(args, cfg):
+    now = time.time()
+    st = State(args.state)
+    z = _zone(cfg, args.zone)
+    tuya = _tuya_from_env()
+    if not args.dry_run:
+        tuya.token()
+    r = do_water(tuya, zone=z, minutes=args.minutes,
+                 watered_today=st.watered_today(z["name"], now), dry_run=args.dry_run)
+    if r.get("ok") and not args.dry_run and r["minutes"] > 0:
+        st.add_watered(z["name"], r["minutes"], now=now)
+    print(json.dumps(r))
+    return 0 if r.get("ok") else 1
+
+
+def cmd_status(args, cfg):
+    z = _zone(cfg, args.zone)
+    tuya = _tuya_from_env()
+    tuya.token()
+    print(json.dumps(tuya.status(z["tuya_device_id"])))
+    return 0
+
+
+def main(argv=None):
+    # Shared options (--config/--state) are added to every subparser via a
+    # common parent so they can appear after the subcommand name (e.g.
+    # `garden plan --config foo.json`) as well as before it.
+    _defaults = argparse.ArgumentParser(add_help=False)
+    _defaults.add_argument("--config", default=os.environ.get("GARDEN_CONFIG", "garden.config.json"))
+    _defaults.add_argument("--state", default=os.environ.get("GARDEN_STATE",
+                           os.path.expanduser("~/.openclaw/garden")))
+
+    p = argparse.ArgumentParser(prog="garden", parents=[_defaults])
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("sensors", parents=[_defaults])
+    sp.add_argument("--zone", required=True)
+
+    sub.add_parser("weather", parents=[_defaults])
+
+    pp = sub.add_parser("plan", parents=[_defaults])
+    pp.add_argument("--phase", default="morning", choices=["morning", "midday", "evening"])
+
+    wp = sub.add_parser("water", parents=[_defaults])
+    wp.add_argument("--zone", required=True)
+    wp.add_argument("--minutes", type=int, required=True)
+    wp.add_argument("--dry-run", action="store_true")
+
+    stp = sub.add_parser("status", parents=[_defaults])
+    stp.add_argument("--zone", required=True)
+
+    args = p.parse_args(argv)
+    cfg = load_config(args.config)
+    return {"sensors": cmd_sensors, "weather": cmd_weather, "plan": cmd_plan,
+            "water": cmd_water, "status": cmd_status}[args.cmd](args, cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
