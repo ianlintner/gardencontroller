@@ -15,6 +15,7 @@
 #include "display.h"
 #if ENABLE_UPLOAD
 #include "net.h"
+#include "ota.h"
 #endif
 
 static unsigned long lastSampleMs = 0;
@@ -29,6 +30,9 @@ void setup() {
   sensorsBegin();
 #if ENABLE_UPLOAD
   netBegin();
+  if (netEnsureWifi()) {
+    otaCheckAndApply();   // checks version, applies + reboots if update available
+  }
 #endif
   lastSampleMs = millis() - SAMPLE_INTERVAL_MS;  // sample immediately on boot
 }
