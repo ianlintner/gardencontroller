@@ -1,0 +1,95 @@
+name: firmware-release
+
+# Builds the garden-node firmware and publishes a GitHub Release on v* tags.
+# The release includes:
+#   version.txt  — plain version string (e.g. "1.2.0"), used by the board's OTA check
+#   garden-node.ota — LZSS-compressed firmware, fetched and flashed by OTAUpdate
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.2.0)"
+        required: true
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # needed to create GitHub Releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ -z "$TAG" || "$TAG" == "refs/heads/"* ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install R4 core + libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:renesas_uno
+          arduino-cli lib install "ArduinoHttpClient" "ArduinoJson" "DHT sensor library"
+
+      - name: Write dummy secrets file
+        run: |
+          cat > firmware/garden-node/arduino_secrets.h << 'EOF'
+          #pragma once
+          #define SECRET_WIFI_SSID "ci"
+          #define SECRET_WIFI_PASS "ci"
+          #define SECRET_OAUTH_CLIENT_ID "ci"
+          #define SECRET_OAUTH_CLIENT_SECRET "ci"
+          EOF
+
+      - name: Set ENABLE_UPLOAD=1 for release build
+        run: |
+          sed -i 's/#define ENABLE_UPLOAD 0/#define ENABLE_UPLOAD 1/' \
+            firmware/garden-node/config.h
+
+      - name: Compile firmware
+        run: |
+          arduino-cli compile \
+            --fqbn arduino:renesas_uno:unor4wifi \
+            --output-dir /tmp/build \
+            firmware/garden-node
+          ls -lh /tmp/build/
+
+      - name: Install OTA conversion tool
+        run: |
+          pip install arduino-iot-cloud --quiet
+          python3 -c "import arduino_iot_cloud; print('arduino-iot-cloud OK')" || true
+          # Fetch the standalone lzss.py from ArduinoIoTCloud extras
+          curl -fsSL https://raw.githubusercontent.com/arduino-libraries/ArduinoIoTCloud/master/extras/tools/lzss.py \
+            -o /tmp/lzss.py
+          python3 /tmp/lzss.py --help 2>&1 | head -3 || true
+
+      - name: Convert .bin to .ota (LZSS compress)
+        run: |
+          BIN=$(ls /tmp/build/*.bin | head -1)
+          echo "Binary: $BIN ($(wc -c < "$BIN") bytes)"
+          python3 /tmp/lzss.py "$BIN" /tmp/garden-node.ota
+          echo "OTA:    $(wc -c < /tmp/garden-node.ota) bytes"
+
+      - name: Write version.txt
+        run: echo -n "${{ steps.version.outputs.version }}" > /tmp/version.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "Firmware ${{ steps.version.outputs.version }}" \
+            --notes "Garden node firmware release ${{ steps.version.outputs.version }}" \
+            /tmp/version.txt \
+            /tmp/garden-node.ota
