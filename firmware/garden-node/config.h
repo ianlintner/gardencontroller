@@ -34,10 +34,18 @@
 #define TEMP_MIN_C  0.0f     // temp bar range
 #define TEMP_MAX_C  40.0f
 
+// ─── OTA firmware update ──────────────────────────────────────────────────────
+// Bump FIRMWARE_VERSION when cutting a release (scripts/release-firmware.sh).
+#define FIRMWARE_VERSION   "1.0.0"
+#define OTA_VERSION_URL    "https://github.com/ianlintner/gardencontroller/releases/latest/download/version.txt"
+#define OTA_BINARY_URL     "https://github.com/ianlintner/gardencontroller/releases/latest/download/garden-node.ota"
+#define OTA_MAX_FAILURES   3      // skip OTA after this many consecutive failures
+#define OTA_EEPROM_OFFSET  0      // byte address of the failure counter in virtual EEPROM
+
 // ─── Feature flags ───────────────────────────────────────────────────────────
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print
 // to Serial so you can calibrate. Flip to 1 once net.cpp is wired (Phase 2).
-#define ENABLE_UPLOAD 0
+#define ENABLE_UPLOAD 1
 
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
 #define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)
