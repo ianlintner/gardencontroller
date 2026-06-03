@@ -43,9 +43,9 @@ void displaySetHealth(DisplayHealth s) {
 
 void displaySetReadings(const SoilReading* soil, size_t count,
                         float tempC, float humidity, bool dhtOk) {
-    for (int i = 0; i < 2; i++) {
-        if ((size_t)i < count) { _soil[i] = soil[i].percent; _soilValid[i] = true; }
-        else                   { _soilValid[i] = false; }
+    for (size_t i = 0; i < 2; i++) {
+        if (i < count) { _soil[i] = soil[i].percent; _soilValid[i] = true; }
+        else           { _soilValid[i] = false; }
     }
     _tempC = tempC; _humid = humidity; _dhtOk = dhtOk;
 }
@@ -68,13 +68,20 @@ void displayTick() {
     int slide = select_slide(now - _cycleStart, SLIDE_MS, N);
 
     if (slide == 0) {
-        // plant animates within its slide
-        if (_renderedSlide != 0 || now - _lastPlantMs >= 700) {
+        bool first_entry = (_renderedSlide != 0);
+        bool timed_advance = (now - _lastPlantMs >= PLANT_FRAME_MS);
+        if (first_entry) {
+            // Slide just entered: show frame 0 immediately (don't advance yet)
+            _plantFrame = 0;
             _lastPlantMs = now;
             render_plant(f, _plantFrame);
-            _plantFrame = (_plantFrame + 1) % PLANT_FRAMES;
             show(f);
             _renderedSlide = 0;
+        } else if (timed_advance) {
+            _plantFrame = (_plantFrame + 1) % PLANT_FRAMES;
+            _lastPlantMs = now;
+            render_plant(f, _plantFrame);
+            show(f);
         }
         return;
     }
