@@ -127,7 +127,7 @@ class State:
     def get_pending(self, now: float):
         d = self._load()
         p = d.get("pending")
-        if not p or now > p["expires"]:
+        if not p or now > p.get("expires", 0):
             return None
         return p["plan"]
 

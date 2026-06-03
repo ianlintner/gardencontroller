@@ -12,6 +12,13 @@ def test_pending_plan_ttl(garden, tmp_path):
     assert st.get_pending(now=2000.0) == [{"zone": "zone1", "minutes": 8, "reason": "x"}]
     assert st.get_pending(now=1000.0 + 7201) is None      # expired
 
+def test_pending_missing_expires_is_safe(garden, tmp_path):
+    st = garden.State(tmp_path)
+    # Simulate a malformed pending record with no 'expires' key
+    import json
+    (tmp_path / "state.json").write_text(json.dumps({"pending": {"plan": [{"zone": "z"}]}}))
+    assert st.get_pending(now=1000.0) is None
+
 def test_idempotency_key(garden, tmp_path):
     st = garden.State(tmp_path)
     assert st.seen_run("morning-2026-06-02") is False
