@@ -5,6 +5,33 @@
 #include <EEPROM.h>
 #include <OTAUpdate.h>
 
+// Root CA for objects.githubusercontent.com (DigiCert Global Root G2).
+// Required by OTAUpdate::setCACert() before download() for TLS validation.
+static const char GITHUB_CDN_ROOT_CA[] = R"(
+-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo2MwYTAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwHwYDVR0jBBgwFoAUTiJUIBiV5uNu5g/6+rkS7QYXjzk
+wDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY1Yl9PMWLSn/pvtsrF9+
+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4NeF22d+mQrvHRAiGfzZ
+0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NGFdtom/DzMNU+MeKNhJ7
+jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ918rGOmaUYZS0MpbBJ2+
+zmpiH7nB0F/J3ym02LlMSCfSQlSq50Y7F0U3YFI1fYdWBvbmBMEjxJVSd7JBFbW3
+tbWVTOGMXr+1w7eMPvt7cSGCylbRFmFDKP3S5z8FeN7PN+U=
+-----END CERTIFICATE-----
+)";
+
 // ─── EEPROM failure counter ───────────────────────────────────────────────────
 // A single byte at OTA_EEPROM_OFFSET tracks consecutive OTA failures.
 // 0xFF (erased flash) is treated as 0. After OTA_MAX_FAILURES the board stops
@@ -117,11 +144,18 @@ bool otaCheckAndApply() {
         incrementFailCount(); return false;
     }
 
-    err = ota.download(OTA_BINARY_URL);
+    err = ota.setCACert(GITHUB_CDN_ROOT_CA);
     if (err != OTAUpdate::OTA_ERROR_NONE) {
-        Serial.print("OTA: download() failed: "); Serial.println(err);
+        Serial.print("OTA: setCACert() failed: "); Serial.println(err);
         incrementFailCount(); return false;
     }
+
+    int ota_bytes = ota.download(OTA_BINARY_URL);
+    if (ota_bytes <= 0) {
+        Serial.print("OTA: download() failed: "); Serial.println(ota_bytes);
+        incrementFailCount(); return false;
+    }
+    Serial.print("OTA: downloaded "); Serial.print(ota_bytes); Serial.println(" bytes");
 
     err = ota.verify();
     if (err != OTAUpdate::OTA_ERROR_NONE) {

@@ -78,7 +78,7 @@ jobs:
         run: |
           BIN=$(ls /tmp/build/*.bin | head -1)
           echo "Binary: $BIN ($(wc -c < "$BIN") bytes)"
-          python3 /tmp/lzss.py "$BIN" /tmp/garden-node.ota
+          python3 /tmp/lzss.py --encode "$BIN" /tmp/garden-node.ota
           echo "OTA:    $(wc -c < /tmp/garden-node.ota) bytes"
 
       - name: Write version.txt
