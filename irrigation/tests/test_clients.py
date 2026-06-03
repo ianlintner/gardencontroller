@@ -30,3 +30,23 @@ def test_read_weather_parses_open_meteo(garden):
     r = garden.read_weather(lat=1.0, lon=2.0, get_json=fake_get)
     assert round(r["precip_12h_mm"], 1) == 1.5
     assert r["precip_prob_pct"] == 70 and r["et0_mm"] == 5.2 and r["temp_high_c"] == 33.0
+
+
+def test_read_sensors_missing_metric_returns_none(garden):
+    """When the soil query returns no results, soil_pct must be None (not an error)."""
+    def fake_get(url):
+        if "soil_moisture_percent" in url:
+            return {"data": {"result": []}}          # metric absent
+        if "push_timestamp" in url:
+            return {"data": {"result": [{"value": [1000.0, "990.0"]}]}}  # recent push
+        if "temperature" in url:
+            return {"data": {"result": [{"value": [1000.0, "25.0"]}]}}
+        return {"data": {"result": []}}
+
+    z = {"name": "zone1", "prom_device_id": "garden-node-1", "probe": "bed1"}
+    r = garden.read_sensors(z, prom_url="http://p", now=1000.0, get_json=fake_get, max_age_s=300)
+    assert r["soil_pct"] is None
+    # Result must still be well-formed
+    assert r["zone"] == "zone1"
+    assert isinstance(r["stale"], bool)
+    assert "age_s" in r

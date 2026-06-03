@@ -213,9 +213,14 @@ class Tuya:
         return {item["code"]: item["value"] for item in res}
 
 
-def do_water(tuya, *, zone, minutes, watered_today, dry_run) -> dict:
+def do_water(tuya, *, zone, minutes, watered_today, dry_run,
+             confirm_attempts: int = 3, confirm_sleep_s: float = 1.0) -> dict:
     """Open the zone's valve for `minutes`, via the countdown DP (hardware auto-off).
-    Re-clamps to caps as a final guard. Confirms the switch reads on after sending.
+
+    Re-clamps to caps as a final guard. Verifies the countdown DP was accepted
+    (the actual auto-off safety) with retry logic for Tuya's eventual consistency.
+    If countdown is not confirmed after all attempts, sends a failsafe OFF command
+    so the valve doesn't stay open indefinitely.
     """
     m = clamp_minutes(minutes, zone, watered_today)
     dev = zone["tuya_device_id"]
@@ -229,10 +234,35 @@ def do_water(tuya, *, zone, minutes, watered_today, dry_run) -> dict:
                                {"code": countdown_dp, "value": m * 60}]}
     tuya.send_commands(dev, [{"code": switch_dp, "value": True},
                              {"code": countdown_dp, "value": m * 60}])
-    st = tuya.status(dev)
-    on = bool(st.get(switch_dp) or st.get("switch_1"))
-    return {"zone": zone["name"], "minutes": m, "ok": on,
-            "note": "watering started" if on else "WARNING: valve did not confirm ON"}
+    # Verify the countdown DP was accepted — it is the hardware auto-off safety.
+    # Loop with sleep only *between* attempts so a fast fake incurs no delay.
+    countdown_set = False
+    st: dict = {}
+    for attempt in range(confirm_attempts):
+        if attempt > 0:
+            time.sleep(confirm_sleep_s)
+        st = tuya.status(dev)
+        countdown_val = st.get(countdown_dp)
+        if isinstance(countdown_val, (int, float)) and countdown_val > 0:
+            countdown_set = True
+            break
+    if not countdown_set:
+        # Failsafe: valve may be open with no auto-off — close it immediately.
+        tuya.send_commands(dev, [{"code": switch_dp, "value": False}])
+        return {
+            "zone": zone["name"],
+            "minutes": m,
+            "ok": False,
+            "note": "countdown not accepted — sent failsafe OFF; valve auto-close NOT guaranteed",
+        }
+    switch_confirmed = bool(st.get(switch_dp) or st.get("switch_1"))
+    return {
+        "zone": zone["name"],
+        "minutes": m,
+        "ok": True,
+        "switch_confirmed": switch_confirmed,
+        "note": f"watering started (~{m}min, auto-off armed)",
+    }
 
 
 def http_get_json(url: str) -> dict:

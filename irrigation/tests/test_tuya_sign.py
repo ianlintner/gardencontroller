@@ -1,4 +1,5 @@
 import hashlib, hmac
+import pytest
 
 def test_string_to_sign(garden):
     sts = garden.tuya_string_to_sign("GET", "", "/v1.0/token?grant_type=1")
@@ -12,3 +13,13 @@ def test_signature_matches_manual_hmac(garden):
     sig = garden.tuya_sign(client_id="cid", secret="sec", access_token="",
                            t="1700000000000", nonce="n", string_to_sign="GET\nx\n\n/p")
     assert sig == expected
+
+
+def test_tuya_call_raises_on_unsuccessful(garden):
+    """Tuya._call must raise TuyaError when success=False."""
+    def failing_http(method, url, headers, body):
+        return {"success": False, "msg": "boom"}
+
+    t = garden.Tuya("cid", "sec", http=failing_http)
+    with pytest.raises(garden.TuyaError, match="boom"):
+        t.token()
