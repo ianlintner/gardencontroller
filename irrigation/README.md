@@ -100,7 +100,8 @@ garden sensors --zone zone1
 garden weather
 
 # Compute a watering plan and save as pending (no Tuya):
-garden plan --phase morning          # or midday / evening
+garden plan --phase morning                    # or midday / evening
+garden plan --config custom.json --phase morning  # custom config (flag goes after subcommand)
 
 # Water a zone (requires Tuya env vars; touches hardware):
 garden water --zone zone1 --minutes 8
@@ -112,7 +113,7 @@ garden water --zone zone1 --minutes 8 --dry-run
 garden status --zone zone1
 ```
 
-Global flags (can appear before or after the subcommand):
+Per-subcommand flags (must appear **after** the subcommand, e.g. `garden plan --config ...`):
 - `--config PATH` — path to config JSON
 - `--state DIR` — path to state directory
 

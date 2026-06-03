@@ -6,10 +6,12 @@ Safety-critical logic (formula, caps, valve commands) lives here, not in prompts
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import hmac
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -307,8 +309,6 @@ def read_weather(*, lat, lon, get_json=http_get_json) -> dict:
 # ---------------------------------------------------------------------------
 # CLI — argparse subcommands
 # ---------------------------------------------------------------------------
-import argparse
-import sys
 
 
 def load_config(path):
@@ -323,8 +323,11 @@ def _zone(cfg, name):
 
 
 def _tuya_from_env():
-    return Tuya(os.environ["TUYA_CLIENT_ID"], os.environ["TUYA_CLIENT_SECRET"],
-                region=os.environ.get("TUYA_REGION", "us"))
+    client_id = os.environ.get("TUYA_CLIENT_ID", "")
+    client_secret = os.environ.get("TUYA_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        raise SystemExit("error: TUYA_CLIENT_ID and TUYA_CLIENT_SECRET must be set")
+    return Tuya(client_id, client_secret, region=os.environ.get("TUYA_REGION", "us"))
 
 
 def cmd_sensors(args, cfg):
@@ -378,15 +381,17 @@ def cmd_status(args, cfg):
 
 
 def main(argv=None):
-    # Shared options (--config/--state) are added to every subparser via a
-    # common parent so they can appear after the subcommand name (e.g.
-    # `garden plan --config foo.json`) as well as before it.
+    # Shared options (--config/--state) are attached ONLY to subparsers via a
+    # common parent so they must appear after the subcommand name (e.g.
+    # `garden plan --config foo.json`).  Adding them to the top-level parser
+    # would let `garden --config X plan` silently use the wrong config because
+    # the subparser default would win.
     _defaults = argparse.ArgumentParser(add_help=False)
     _defaults.add_argument("--config", default=os.environ.get("GARDEN_CONFIG", "garden.config.json"))
     _defaults.add_argument("--state", default=os.environ.get("GARDEN_STATE",
                            os.path.expanduser("~/.openclaw/garden")))
 
-    p = argparse.ArgumentParser(prog="garden", parents=[_defaults])
+    p = argparse.ArgumentParser(prog="garden")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("sensors", parents=[_defaults])
@@ -406,9 +411,13 @@ def main(argv=None):
     stp.add_argument("--zone", required=True)
 
     args = p.parse_args(argv)
-    cfg = load_config(args.config)
-    return {"sensors": cmd_sensors, "weather": cmd_weather, "plan": cmd_plan,
-            "water": cmd_water, "status": cmd_status}[args.cmd](args, cfg)
+    try:
+        cfg = load_config(args.config)
+        return {"sensors": cmd_sensors, "weather": cmd_weather, "plan": cmd_plan,
+                "water": cmd_water, "status": cmd_status}[args.cmd](args, cfg)
+    except (OSError, urllib.error.URLError, TuyaError, json.JSONDecodeError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

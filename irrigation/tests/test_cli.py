@@ -1,4 +1,18 @@
 import json
+import time
+import pytest
+
+
+def _make_cfg(tmp_path):
+    cfg = {"lat": 1, "lon": 2, "et0_baseline_mm": 4.0, "rain_skip_mm": 2.0,
+           "rain_skip_prob_pct": 60.0, "heat_threshold_c": 32.0, "midday_cap_min": 5,
+           "prometheus_url": "http://p",
+           "zones": [{"name": "zone1", "tuya_device_id": "d", "prom_device_id": "garden-node-1",
+                      "probe": "bed1", "target_pct": 40.0, "min_per_pct": 0.5,
+                      "max_per_run": 15, "max_per_day": 30, "min_run": 1}]}
+    cfg_path = tmp_path / "c.json"
+    cfg_path.write_text(json.dumps(cfg))
+    return str(cfg_path)
 
 
 def test_cli_plan_outputs_json(garden, tmp_path, monkeypatch, capsys):
@@ -18,3 +32,53 @@ def test_cli_plan_outputs_json(garden, tmp_path, monkeypatch, capsys):
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload[0]["zone"] == "zone1" and payload[0]["minutes"] == 10
+
+
+class _DummyTuya:
+    """Minimal Tuya stub that records token() calls but does no network I/O."""
+    def __init__(self):
+        self.token_called = False
+
+    def token(self):
+        self.token_called = True
+        return "fake-token"
+
+
+def test_cli_water_records_watered_on_success(garden, tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    monkeypatch.setattr(garden, "do_water",
+                        lambda tuya, **kw: {"zone": "zone1", "minutes": 5, "ok": True})
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                      "--config", cfg, "--state", state_dir])
+    assert rc == 0
+    assert garden.State(state_dir).watered_today("zone1", now=time.time()) == 5.0
+
+
+def test_cli_water_dry_run_does_not_record(garden, tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                      "--config", cfg, "--state", state_dir, "--dry-run"])
+    assert rc == 0
+    assert garden.State(state_dir).watered_today("zone1", now=time.time()) == 0.0
+
+
+def test_cli_water_failure_exits_1_no_record(garden, tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    monkeypatch.setattr(garden, "do_water",
+                        lambda tuya, **kw: {"zone": "zone1", "minutes": 5, "ok": False, "note": "x"})
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                      "--config", cfg, "--state", state_dir])
+    assert rc == 1
+    assert garden.State(state_dir).watered_today("zone1", now=time.time()) == 0.0
+
+
+def test_cli_unknown_zone_aborts(garden, tmp_path):
+    cfg = _make_cfg(tmp_path)
+    with pytest.raises(SystemExit):
+        garden.main(["sensors", "--zone", "nope", "--config", cfg])
