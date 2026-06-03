@@ -50,7 +50,7 @@ def test_cli_water_records_watered_on_success(garden, tmp_path, monkeypatch):
     monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
     monkeypatch.setattr(garden, "do_water",
                         lambda tuya, **kw: {"zone": "zone1", "minutes": 5, "ok": True})
-    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5", "--force",
                       "--config", cfg, "--state", state_dir])
     assert rc == 0
     assert garden.State(state_dir).watered_today("zone1", now=time.time()) == 5.0
@@ -72,7 +72,7 @@ def test_cli_water_failure_exits_1_no_record(garden, tmp_path, monkeypatch):
     monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
     monkeypatch.setattr(garden, "do_water",
                         lambda tuya, **kw: {"zone": "zone1", "minutes": 5, "ok": False, "note": "x"})
-    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5", "--force",
                       "--config", cfg, "--state", state_dir])
     assert rc == 1
     assert garden.State(state_dir).watered_today("zone1", now=time.time()) == 0.0
@@ -82,3 +82,46 @@ def test_cli_unknown_zone_aborts(garden, tmp_path):
     cfg = _make_cfg(tmp_path)
     with pytest.raises(SystemExit):
         garden.main(["sensors", "--zone", "nope", "--config", cfg])
+
+
+def test_cli_water_requires_approved_plan(garden, tmp_path, monkeypatch):
+    """Without --force and no pending plan, water must abort."""
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    with pytest.raises(SystemExit):
+        garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                     "--config", cfg, "--state", state_dir])
+
+
+def test_cli_water_rejects_exceeding_approved(garden, tmp_path, monkeypatch):
+    """Water must abort if requested minutes exceed the approved plan's minutes."""
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    garden.State(state_dir).set_pending(
+        [{"zone": "zone1", "minutes": 5, "reason": "x"}], now=time.time()
+    )
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    with pytest.raises(SystemExit):
+        garden.main(["water", "--zone", "zone1", "--minutes", "10",
+                     "--config", cfg, "--state", state_dir])
+
+
+def test_cli_water_consumes_pending_single_use(garden, tmp_path, monkeypatch):
+    """A pending entry is consumed on success; a second identical call must abort."""
+    cfg = _make_cfg(tmp_path)
+    state_dir = str(tmp_path / "state")
+    garden.State(state_dir).set_pending(
+        [{"zone": "zone1", "minutes": 5, "reason": "x"}], now=time.time()
+    )
+    monkeypatch.setattr(garden, "_tuya_from_env", lambda: _DummyTuya())
+    monkeypatch.setattr(garden, "do_water",
+                        lambda tuya, **kw: {"zone": "zone1", "minutes": 5, "ok": True})
+    # First call succeeds and consumes the pending entry.
+    rc = garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                      "--config", cfg, "--state", state_dir])
+    assert rc == 0
+    # Second call must now fail (pending consumed).
+    with pytest.raises(SystemExit):
+        garden.main(["water", "--zone", "zone1", "--minutes", "5",
+                     "--config", cfg, "--state", state_dir])

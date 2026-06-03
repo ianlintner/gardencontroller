@@ -56,6 +56,10 @@ garden water --zone zone1 --minutes 8
 garden water --zone zone2 --minutes 5
 ```
 
+**`garden water` requires a matching un-expired pending plan — this is enforced in code, not just by convention.** If no `garden plan` has been run recently (within the 2-hour TTL) or the plan has already been consumed, `garden water` will exit with an error. The pending entry is single-use: once watering succeeds for a zone, that zone's entry is consumed and a second call without a fresh `garden plan` will be rejected.
+
+You must always run `garden plan` first. Only after `garden plan` has saved a pending proposal, and you have received human ✅ approval, should you invoke `garden water`.
+
 This re-clamps `N` through the zone's hard caps (max per run, daily budget) before sending any command, so it is safe to pass the plan's minutes directly. The valve opens via a countdown DP (hardware auto-off) and the result is confirmed.
 
 Report the result back to Discord:
@@ -81,10 +85,15 @@ garden weather
 garden plan --phase <morning|midday|evening>
 
 # Execute watering for a zone (requires Tuya env vars, touches hardware):
+# NOTE: requires a matching un-expired pending plan (run 'garden plan' first).
+# The pending entry is single-use and expires after 2 hours.
 garden water --zone <zone> --minutes <N>
 
-# Dry-run: shows what would be sent, sends nothing:
+# Dry-run: shows what would be sent, sends nothing (bypasses pending gate):
 garden water --zone zone1 --minutes 5 --dry-run
+
+# Force: bypass the pending gate (manual/testing only — not for normal agent use):
+garden water --zone zone1 --minutes 5 --force
 
 # Read current Tuya device status (valve state, countdown):
 garden status --zone zone1
@@ -94,7 +103,7 @@ garden status --zone zone1
 
 ## Safety Rules (non-negotiable)
 
-1. **Never water without explicit human approval.** The plan subcommand is always safe; the water subcommand requires a ✅.
+1. **Never water without explicit human approval.** The plan subcommand is always safe; the water subcommand requires a ✅. This is enforced in code: `garden water` will refuse to run unless a matching un-expired pending plan exists (created by `garden plan`). The pending entry is single-use — once a zone is watered, its entry is consumed and a second `garden water` call for the same zone will be rejected until a new `garden plan` is run.
 2. **Never exceed hard caps.** `garden water` re-clamps through `max_per_run` and the daily budget (`max_per_day`) automatically. Do not try to work around this.
 3. **On any error, skip and report.** If `garden water` exits non-zero or returns `"ok": false`, report the error to Discord and move on to the next zone. Do not retry.
 4. **Midday run is heat-wave-only.** If all zones return `minutes == 0` at midday because it is not hot enough, that is correct behavior — report it and stop.

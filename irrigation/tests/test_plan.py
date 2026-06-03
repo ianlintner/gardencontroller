@@ -34,6 +34,12 @@ def test_et0_scales_up_on_hot_dry_day(garden):
     r = plan_one(garden, soil_pct=20.0, et0_mm=8.0)
     assert r["minutes"] == 15
 
+def test_plan_neutral_when_et0_none(garden):
+    # et0_mm=None -> factor 1.0 -> deficit 20 * 0.5 * 1.0 = 10 min
+    r = plan_one(garden, et0_mm=None)
+    assert r["minutes"] == 10
+
+
 def test_midday_only_waters_in_heat(garden):
     cool = plan_one(garden, run_phase="midday", temp_c=25.0, soil_pct=20.0)
     assert cool["minutes"] == 0          # not hot enough -> midday skips

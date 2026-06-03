@@ -18,6 +18,17 @@
       "max_per_run": 15,
       "max_per_day": 30,
       "min_run": 1
+    },
+    {
+      "name": "zone2",
+      "tuya_device_id": "REPLACE_WITH_DEVICE_ID_2",
+      "prom_device_id": "garden-node-2",
+      "probe": "bed1",
+      "target_pct": 40.0,
+      "min_per_pct": 0.5,
+      "max_per_run": 15,
+      "max_per_day": 30,
+      "min_run": 1
     }
   ]
 }

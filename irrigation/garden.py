@@ -69,7 +69,7 @@ def plan_zone(*, zone, cfg, soil_pct, temp_c, stale, precip_12h_mm,
     base = deficit * zone["min_per_pct"]
 
     # 4. ET0 scaling (hot/dry day -> more, mild -> less).
-    et_factor = (et0_mm / cfg["et0_baseline_mm"]) if cfg["et0_baseline_mm"] else 1.0
+    et_factor = (et0_mm / cfg["et0_baseline_mm"]) if (et0_mm and cfg["et0_baseline_mm"]) else 1.0
     minutes = base * et_factor
 
     # 5. Midday = heat-wave-only short burst.
@@ -79,8 +79,9 @@ def plan_zone(*, zone, cfg, soil_pct, temp_c, stale, precip_12h_mm,
         minutes = min(minutes, cfg["midday_cap_min"])
         reason = f"heat-wave burst: {temp_c:.0f}°C, soil {soil_pct:.0f}%"
     else:
+        et0_str = f"{et0_mm:.1f}mm" if et0_mm is not None else "n/a"
         reason = (f"{run_phase}: soil {soil_pct:.0f}% vs target {zone['target_pct']:.0f}%, "
-                  f"ET0 {et0_mm:.1f}mm")
+                  f"ET0 {et0_str}")
 
     # 6. Hard caps (final guard, incl. daily budget).
     capped = clamp_minutes(minutes, zone, watered_today)
@@ -140,6 +141,16 @@ class State:
 
     def clear_pending(self) -> None:
         d = self._load(); d.pop("pending", None); self._save(d)
+
+    def remove_pending_zone(self, zone: str) -> None:
+        d = self._load()
+        p = d.get("pending")
+        if not p:
+            return
+        p["plan"] = [e for e in p.get("plan", []) if e.get("zone") != zone]
+        if not p["plan"]:
+            d.pop("pending", None)
+        self._save(d)
 
     def seen_run(self, key: str) -> bool:
         return key in self._load().get("runs", [])
@@ -300,10 +311,15 @@ def read_weather(*, lat, lon, get_json=http_get_json) -> dict:
     d = get_json(url)
     precip = d["hourly"]["precipitation"][:12]
     prob = d["hourly"]["precipitation_probability"][:12]
+    et0_arr = d["daily"].get("et0_fao_evapotranspiration", [])
+    et0_raw = et0_arr[0] if et0_arr else None
+    et0 = float(et0_raw) if et0_raw is not None else None
+    temp_arr = d["daily"].get("temperature_2m_max", [])
+    temp_high = float(temp_arr[0]) if temp_arr else None
     return {"precip_12h_mm": float(sum(precip)),
             "precip_prob_pct": float(max(prob) if prob else 0),
-            "et0_mm": float(d["daily"]["et0_fao_evapotranspiration"][0]),
-            "temp_high_c": float(d["daily"]["temperature_2m_max"][0])}
+            "et0_mm": et0,
+            "temp_high_c": temp_high}
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +377,13 @@ def cmd_water(args, cfg):
     now = time.time()
     st = State(args.state)
     z = _zone(cfg, args.zone)
+    if not args.dry_run and not args.force:
+        pending = st.get_pending(now) or []
+        match = next((e for e in pending if e.get("zone") == args.zone and e.get("minutes", 0) > 0), None)
+        if match is None:
+            raise SystemExit(f"error: no un-expired approved plan for zone {args.zone}; run 'garden plan' first")
+        if args.minutes > match["minutes"]:
+            raise SystemExit(f"error: requested {args.minutes}min exceeds approved {match['minutes']}min for zone {args.zone}")
     tuya = _tuya_from_env()
     if not args.dry_run:
         tuya.token()
@@ -368,6 +391,7 @@ def cmd_water(args, cfg):
                  watered_today=st.watered_today(z["name"], now), dry_run=args.dry_run)
     if r.get("ok") and not args.dry_run and r["minutes"] > 0:
         st.add_watered(z["name"], r["minutes"], now=now)
+        st.remove_pending_zone(z["name"])
     print(json.dumps(r))
     return 0 if r.get("ok") else 1
 
@@ -406,6 +430,7 @@ def main(argv=None):
     wp.add_argument("--zone", required=True)
     wp.add_argument("--minutes", type=int, required=True)
     wp.add_argument("--dry-run", action="store_true")
+    wp.add_argument("--force", action="store_true")
 
     stp = sub.add_parser("status", parents=[_defaults])
     stp.add_argument("--zone", required=True)
@@ -415,7 +440,7 @@ def main(argv=None):
         cfg = load_config(args.config)
         return {"sensors": cmd_sensors, "weather": cmd_weather, "plan": cmd_plan,
                 "water": cmd_water, "status": cmd_status}[args.cmd](args, cfg)
-    except (OSError, urllib.error.URLError, TuyaError, json.JSONDecodeError, ValueError) as e:
+    except (OSError, urllib.error.URLError, TuyaError, json.JSONDecodeError, ValueError, TypeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

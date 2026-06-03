@@ -32,6 +32,18 @@ def test_read_weather_parses_open_meteo(garden):
     assert r["precip_prob_pct"] == 70 and r["et0_mm"] == 5.2 and r["temp_high_c"] == 33.0
 
 
+def test_read_weather_handles_null_et0(garden):
+    """read_weather must return et0_mm=None (not crash) when Open-Meteo returns null."""
+    def fake_get(url):
+        return {"hourly": {"precipitation": [0.0] * 12,
+                           "precipitation_probability": [0] * 12},
+                "daily": {"et0_fao_evapotranspiration": [None],
+                          "temperature_2m_max": [28.0]}}
+    r = garden.read_weather(lat=1.0, lon=2.0, get_json=fake_get)
+    assert r["et0_mm"] is None
+    assert r["temp_high_c"] == 28.0
+
+
 def test_read_sensors_missing_metric_returns_none(garden):
     """When the soil query returns no results, soil_pct must be None (not an error)."""
     def fake_get(url):
