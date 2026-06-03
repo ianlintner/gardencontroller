@@ -29,10 +29,15 @@
 // ~7 frames, so 900ms ≈ a 6s grow-and-loop cycle.
 #define PLANT_FRAME_MS 900UL
 
+// LED slideshow
+#define SLIDE_MS    5000UL   // ms per slide (5 slides -> 25s cycle)
+#define TEMP_MIN_C  0.0f     // temp bar range
+#define TEMP_MAX_C  40.0f
+
 // ─── Feature flags ───────────────────────────────────────────────────────────
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print
 // to Serial so you can calibrate. Flip to 1 once net.cpp is wired (Phase 2).
-#define ENABLE_UPLOAD 0
+#define ENABLE_UPLOAD 1
 
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
 #define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)
