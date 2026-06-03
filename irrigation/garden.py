@@ -211,3 +211,25 @@ class Tuya:
     def status(self, device_id) -> dict:
         res = self._call("GET", f"/v1.0/iot-03/devices/{device_id}/status")
         return {item["code"]: item["value"] for item in res}
+
+
+def do_water(tuya, *, zone, minutes, watered_today, dry_run) -> dict:
+    """Open the zone's valve for `minutes`, via the countdown DP (hardware auto-off).
+    Re-clamps to caps as a final guard. Confirms the switch reads on after sending.
+    """
+    m = clamp_minutes(minutes, zone, watered_today)
+    dev = zone["tuya_device_id"]
+    switch_dp = zone.get("switch_dp", "switch")
+    countdown_dp = zone.get("countdown_dp", "countdown_1")
+    if m == 0:
+        return {"zone": zone["name"], "minutes": 0, "ok": True, "note": "nothing to do (capped to 0)"}
+    if dry_run:
+        return {"zone": zone["name"], "minutes": m, "ok": True, "dry_run": True,
+                "would_send": [{"code": switch_dp, "value": True},
+                               {"code": countdown_dp, "value": m * 60}]}
+    tuya.send_commands(dev, [{"code": switch_dp, "value": True},
+                             {"code": countdown_dp, "value": m * 60}])
+    st = tuya.status(dev)
+    on = bool(st.get(switch_dp) or st.get("switch_1"))
+    return {"zone": zone["name"], "minutes": m, "ok": on,
+            "note": "watering started" if on else "WARNING: valve did not confirm ON"}
