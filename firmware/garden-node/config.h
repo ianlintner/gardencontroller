@@ -35,7 +35,7 @@
 #define ENABLE_UPLOAD 0
 
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
-#define DHT_PIN       2     // DHT22 data (with 10k pull-up to 3V3)
+#define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)
 #define DHT_TYPE      DHT22 // change to DHT11 if that's what the kit shipped
 #define RAIN_PIN_A    A1    // rain-drop analog (intensity)
 #define RAIN_PIN_D    3     // rain-drop digital comparator (optional)

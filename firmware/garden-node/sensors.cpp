@@ -70,11 +70,12 @@ void sensorsPrint(const Reading& r) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Calibrated 2026-06 for the kit capacitive probe at 5V (dry=high, wet=low).
-// Measured: dry towel/air ~16374 (rails near the 14-bit max at 5V), wet towel
-// ~11000. map() handles the high→low direction. Re-measure in real soil to
-// refine; powering at 3.3V instead of 5V would avoid the dry-end ADC railing.
+// DRY = dry air/towel ~16374 (rails near the 14-bit max at 5V).
+// WET = freshly-watered/saturated garden soil (measured ~10768 in the bed),
+// so saturated soil reads ~100% and the % tracks real drying from there.
+// map() handles the high→low direction; powering at 3.3V would avoid dry-end railing.
 static const int SOIL_RAW_DRY = 16374;
-static const int SOIL_RAW_WET = 11000;
+static const int SOIL_RAW_WET = 10700;
 
 float soilMoisturePercent(int raw) {
   long pct = map((long)raw, SOIL_RAW_DRY, SOIL_RAW_WET, 0, 100);
