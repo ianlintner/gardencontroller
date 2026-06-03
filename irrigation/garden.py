@@ -26,3 +26,52 @@ def clamp_minutes(minutes: float, zone: dict, watered_today: float) -> int:
     if m < int(zone.get("min_run", 1)):
         return 0
     return m
+
+
+def plan_zone(*, zone, cfg, soil_pct, temp_c, stale, precip_12h_mm,
+              precip_prob_pct, et0_mm, run_phase, watered_today) -> dict:
+    """Deterministic per-zone watering decision. Returns {zone, minutes, reason}.
+
+    Gardener-tunable constants live in `zone` and `cfg` (config file).
+    Order matters: fail-safe skips first, then compute, then cap.
+    """
+    name = zone["name"]
+
+    def out(minutes, reason):
+        return {"zone": name, "minutes": int(minutes), "reason": reason}
+
+    # Fail-safe: never water on stale/missing sensor data.
+    if stale or soil_pct is None:
+        return out(0, "skip: soil reading stale/missing")
+
+    # 1. Rain skip — let nature do it.
+    if precip_12h_mm >= cfg["rain_skip_mm"] or precip_prob_pct >= cfg["rain_skip_prob_pct"]:
+        return out(0, f"skip: rain forecast ({precip_12h_mm:.1f}mm / {precip_prob_pct:.0f}%)")
+
+    # 2. Soil gate — already moist enough.
+    if soil_pct >= zone["target_pct"]:
+        return out(0, f"skip: soil {soil_pct:.0f}% >= target {zone['target_pct']:.0f}%")
+
+    # 3. Deficit -> base minutes.
+    deficit = zone["target_pct"] - soil_pct
+    base = deficit * zone["min_per_pct"]
+
+    # 4. ET0 scaling (hot/dry day -> more, mild -> less).
+    et_factor = (et0_mm / cfg["et0_baseline_mm"]) if cfg["et0_baseline_mm"] else 1.0
+    minutes = base * et_factor
+
+    # 5. Midday = heat-wave-only short burst.
+    if run_phase == "midday":
+        if temp_c is None or temp_c < cfg["heat_threshold_c"]:
+            return out(0, f"skip: midday, not a heat wave (temp {temp_c}°C)")
+        minutes = min(minutes, cfg["midday_cap_min"])
+        reason = f"heat-wave burst: {temp_c:.0f}°C, soil {soil_pct:.0f}%"
+    else:
+        reason = (f"{run_phase}: soil {soil_pct:.0f}% vs target {zone['target_pct']:.0f}%, "
+                  f"ET0 {et0_mm:.1f}mm")
+
+    # 6. Hard caps (final guard, incl. daily budget).
+    capped = clamp_minutes(minutes, zone, watered_today)
+    if capped == 0:
+        return out(0, f"skip: computed {minutes:.1f}min below min or daily budget spent")
+    return out(capped, reason)
