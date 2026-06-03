@@ -6,9 +6,14 @@ Safety-critical logic (formula, caps, valve commands) lives here, not in prompts
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 __version__ = "0.1.0"
@@ -141,3 +146,68 @@ class State:
         d = self._load(); runs = d.setdefault("runs", [])
         if key not in runs:
             runs.append(key); self._save(d)
+
+
+def tuya_string_to_sign(method: str, body: str, path: str) -> str:
+    body_hash = hashlib.sha256(body.encode()).hexdigest()
+    return f"{method}\n{body_hash}\n\n{path}"
+
+
+def tuya_sign(*, client_id, secret, access_token, t, nonce, string_to_sign) -> str:
+    payload = client_id + access_token + t + nonce + string_to_sign
+    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest().upper()
+
+
+class TuyaError(Exception):
+    pass
+
+
+class Tuya:
+    """Minimal Tuya Cloud OpenAPI client (token + device commands/status)."""
+    REGION_HOST = {"us": "openapi.tuyaus.com", "eu": "openapi.tuyaeu.com",
+                   "cn": "openapi.tuyacn.com", "in": "openapi.tuyain.com"}
+
+    def __init__(self, client_id, secret, region="us", now_ms=None, http=None):
+        self.client_id = client_id
+        self.secret = secret
+        self.host = self.REGION_HOST.get(region, self.REGION_HOST["us"])
+        self._now_ms = now_ms or (lambda: str(int(time.time() * 1000)))
+        self._http = http or self._urlopen
+        self._token = None
+
+    def _urlopen(self, method, url, headers, body):
+        req = urllib.request.Request(url, data=(body.encode() if body else None),
+                                     headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+
+    def _call(self, method, path, body="", with_token=True):
+        t = self._now_ms()
+        nonce = ""
+        access_token = (self._token or "") if with_token else ""
+        sts = tuya_string_to_sign(method, body, path)
+        sign = tuya_sign(client_id=self.client_id, secret=self.secret,
+                         access_token=access_token, t=t, nonce=nonce, string_to_sign=sts)
+        headers = {"client_id": self.client_id, "sign": sign, "t": t,
+                   "sign_method": "HMAC-SHA256", "nonce": nonce,
+                   "Content-Type": "application/json"}
+        if with_token:
+            headers["access_token"] = self._token
+        resp = self._http(method, f"https://{self.host}{path}", headers, body)
+        if not resp.get("success", False):
+            raise TuyaError(resp.get("msg", str(resp)))
+        return resp["result"]
+
+    def token(self):
+        self._token = None
+        res = self._call("GET", "/v1.0/token?grant_type=1", with_token=False)
+        self._token = res["access_token"]
+        return self._token
+
+    def send_commands(self, device_id, commands: list):
+        body = json.dumps({"commands": commands})
+        return self._call("POST", f"/v1.0/iot-03/devices/{device_id}/commands", body=body)
+
+    def status(self, device_id) -> dict:
+        res = self._call("GET", f"/v1.0/iot-03/devices/{device_id}/status")
+        return {item["code"]: item["value"] for item in res}
