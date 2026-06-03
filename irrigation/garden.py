@@ -6,6 +6,11 @@ Safety-critical logic (formula, caps, valve commands) lives here, not in prompts
 """
 from __future__ import annotations
 
+import json
+import os
+import time
+from pathlib import Path
+
 __version__ = "0.1.0"
 
 
@@ -75,3 +80,64 @@ def plan_zone(*, zone, cfg, soil_pct, temp_c, stale, precip_12h_mm,
     if capped == 0:
         return out(0, f"skip: computed {minutes:.1f}min below min or daily budget spent")
     return out(capped, reason)
+
+
+class State:
+    """JSON state persisted on OpenClaw's PVC (default ~/.openclaw/garden)."""
+    def __init__(self, base_dir):
+        self.dir = Path(base_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.dir / "state.json"
+
+    def _load(self) -> dict:
+        if self.path.exists():
+            try:
+                return json.loads(self.path.read_text())
+            except Exception:
+                return {}
+        return {}
+
+    def _save(self, d: dict) -> None:
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, indent=2))
+        os.replace(tmp, self.path)
+
+    @staticmethod
+    def _day(now: float) -> str:
+        return time.strftime("%Y-%m-%d", time.gmtime(now))
+
+    def watered_today(self, zone: str, now: float) -> float:
+        d = self._load()
+        rec = d.get("watered", {}).get(zone, {})
+        return float(rec.get("minutes", 0)) if rec.get("day") == self._day(now) else 0.0
+
+    def add_watered(self, zone: str, minutes: float, now: float) -> None:
+        d = self._load()
+        w = d.setdefault("watered", {})
+        rec = w.get(zone, {})
+        cur = float(rec.get("minutes", 0)) if rec.get("day") == self._day(now) else 0.0
+        w[zone] = {"day": self._day(now), "minutes": cur + float(minutes)}
+        self._save(d)
+
+    def set_pending(self, plan, now: float, ttl_s: int = 7200) -> None:
+        d = self._load()
+        d["pending"] = {"plan": plan, "expires": now + ttl_s}
+        self._save(d)
+
+    def get_pending(self, now: float):
+        d = self._load()
+        p = d.get("pending")
+        if not p or now > p["expires"]:
+            return None
+        return p["plan"]
+
+    def clear_pending(self) -> None:
+        d = self._load(); d.pop("pending", None); self._save(d)
+
+    def seen_run(self, key: str) -> bool:
+        return key in self._load().get("runs", [])
+
+    def mark_run(self, key: str) -> None:
+        d = self._load(); runs = d.setdefault("runs", [])
+        if key not in runs:
+            runs.append(key); self._save(d)
