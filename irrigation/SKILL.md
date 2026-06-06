@@ -16,7 +16,7 @@ Three times per day — morning (~05:30 local), midday (~12:30 local), evening (
 garden plan --phase <morning|midday|evening>
 ```
 
-This reads live soil/temperature sensors from Prometheus and current weather from Open-Meteo, runs the deterministic formula for each zone, and outputs a JSON array to stdout. The plan is also saved as a pending proposal in the state directory with a 2-hour TTL.
+This reads live soil/temperature sensors from Prometheus and current weather from Open-Meteo, runs the deterministic formula for each zone, and outputs a JSON array to stdout. It is a pure proposal — it touches no hardware and stores no state.
 
 Example output:
 ```json
@@ -38,33 +38,28 @@ If all zones are skipped (all `minutes == 0`), post a summary message and stop. 
 
 ### Step 3: Wait for approval
 
-Wait for a ✅ reply (or explicit approval message) in the Discord thread. The approval window is 2 hours (matching the pending plan TTL). If no approval arrives within the window, the plan expires and the agent stops without watering.
+Wait for a ✅ reply (or explicit approval message) in the Discord thread. Pick a reasonable approval window (e.g. ~2 hours); if no approval arrives, stop without watering.
 
 **Never water without explicit human approval.**
 
 ### Step 4: Execute watering (on approval)
 
-For each approved zone with `minutes > 0`:
+For each approved zone with `minutes > 0`, call the MCP tool:
 
-```
-garden water --zone <zone> --minutes <N>
-```
-
-Example:
-```
-garden water --zone zone1 --minutes 8
-garden water --zone zone2 --minutes 5
+```text
+water_zone(zone="zone1", minutes=8)
+water_zone(zone="zone2", minutes=5)
 ```
 
-**`garden water` requires a matching un-expired pending plan — this is enforced in code, not just by convention.** If no `garden plan` has been run recently (within the 2-hour TTL) or the plan has already been consumed, `garden water` will exit with an error. The pending entry is single-use: once watering succeeds for a zone, that zone's entry is consumed and a second call without a fresh `garden plan` will be rejected.
+The `garden-tuya` MCP sidecar clamps `minutes` through the zone's hard caps
+(`max_per_run`, then the per-zone daily budget) **before** sending any command —
+so it is safe to pass the plan's minutes directly. The valve opens via a
+countdown DP (hardware auto-off) and the result is confirmed. The agent holds no
+Tuya key and cannot bypass these caps.
 
-You must always run `garden plan` first. Only after `garden plan` has saved a pending proposal, and you have received human ✅ approval, should you invoke `garden water`.
-
-This re-clamps `N` through the zone's hard caps (max per run, daily budget) before sending any command, so it is safe to pass the plan's minutes directly. The valve opens via a countdown DP (hardware auto-off) and the result is confirmed.
-
-Report the result back to Discord:
-- On success (`ok: true`): "zone1: watering started (~8 min, auto-off armed)."
-- On failure (`ok: false`): "zone1: ERROR — {note}. Skipping." (do not retry; report and move on)
+Report the result back to Discord (the tool returns `{requested, granted, ok, reason}`):
+- On success (`ok: true`): "zone1: watering started (~{granted} min, auto-off armed)." If `granted < requested`, note the clamp.
+- On failure (`ok: false`): "zone1: ERROR — {reason}. Skipping." (do not retry; report and move on)
 
 ### Step 5: Update Discord with final status
 
@@ -81,72 +76,74 @@ garden sensors --zone zone1
 # Check weather forecast (read-only):
 garden weather
 
-# Generate a watering plan for a phase (saves pending plan):
+# Generate a watering plan for a phase (read-only proposal; no valve action):
 garden plan --phase <morning|midday|evening>
+```
 
-# Execute watering for a zone (requires Tuya env vars, touches hardware):
-# NOTE: requires a matching un-expired pending plan (run 'garden plan' first).
-# The pending entry is single-use and expires after 2 hours.
-garden water --zone <zone> --minutes <N>
+Valve actions are NOT in this CLI. They are **MCP tools** exposed by the
+`garden-tuya` sidecar (the only holder of the Tuya key). Call them as MCP tools:
 
-# Dry-run: shows what would be sent, sends nothing (bypasses pending gate):
-garden water --zone zone1 --minutes 5 --dry-run
+```text
+# See approved zones + remaining daily budget before proposing:
+list_zones()
 
-# Force: bypass the pending gate (manual/testing only — not for normal agent use):
-garden water --zone zone1 --minutes 5 --force
+# Open a valve. The MCP clamps `minutes` through max_per_run then the per-zone
+# daily budget and verifies hardware auto-off. Returns {requested, granted, ok, reason}.
+water_zone(zone="zone1", minutes=8)
 
-# Read current Tuya device status (valve state, countdown):
-garden status --zone zone1
+# Read live valve state / countdown:
+get_zone_status(zone="zone1")
+
+# Emergency close:
+stop_zone(zone="zone1")
 ```
 
 ---
 
 ## Safety Rules (non-negotiable)
 
-1. **Never water without explicit human approval.** The plan subcommand is always safe; the water subcommand requires a ✅. This is enforced in code: `garden water` will refuse to run unless a matching un-expired pending plan exists (created by `garden plan`). The pending entry is single-use — once a zone is watered, its entry is consumed and a second `garden water` call for the same zone will be rejected until a new `garden plan` is run.
-2. **Never exceed hard caps.** `garden water` re-clamps through `max_per_run` and the daily budget (`max_per_day`) automatically. Do not try to work around this.
-3. **On any error, skip and report.** If `garden water` exits non-zero or returns `"ok": false`, report the error to Discord and move on to the next zone. Do not retry.
+1. **Never water without explicit human approval.** `garden plan` is always safe (a proposal). Post each zone with `minutes > 0` to Discord and wait for a ✅ before calling `water_zone`. (Human approval is orchestrated by you; the MCP additionally enforces the hard caps below regardless.)
+2. **Never exceed hard caps — and you can't.** `water_zone` clamps the request through `max_per_run` then the per-zone daily budget **inside the MCP sidecar**, which holds the only Tuya key. The agent cannot exceed it or reach Tuya directly. If `granted < requested`, report the clamp. There is no `--force`.
+3. **On any error, skip and report.** If `water_zone` returns `"ok": false`, report the `reason` to Discord and move on to the next zone. Do not retry.
 4. **Midday run is heat-wave-only.** If all zones return `minutes == 0` at midday because it is not hot enough, that is correct behavior — report it and stop.
 5. **Stale sensors abort watering.** If the sensor reading is flagged `"stale": true`, `plan_zone` returns 0 minutes automatically. Do not override this.
-6. **The pending plan has a 2-hour TTL.** If approval does not arrive within 2 hours of the plan being generated, the plan is expired. Do not execute an expired plan.
+6. **The daily budget is the hard limit.** It resets at local midnight (configured timezone) and is tracked by the MCP on its own volume — you cannot read or reset it. `list_zones()` shows each zone's `remaining_today`.
 
 ---
 
-## Dry-Run Rehearsal
+## Rehearsal
 
-Before the first live run in a new environment, perform a dry-run rehearsal to verify Tuya connectivity and DP codes without opening any valves:
+Before the first live run in a new environment, verify connectivity without
+opening valves using the read-only paths:
 
-```bash
-# Verify the plan formula produces sensible output:
-garden plan --phase morning
-
-# Verify Tuya signing and DP codes (sends nothing, prints would_send):
-garden water --zone zone1 --minutes 5 --dry-run
-garden water --zone zone2 --minutes 5 --dry-run
+```text
+garden plan --phase morning      # formula proposal (no hardware)
+list_zones()                     # MCP reachable; shows caps + remaining budget
+get_zone_status(zone="zone1")    # MCP can read the device (confirms key + DP wiring)
 ```
 
-Expected dry-run output:
-```json
-{"zone": "zone1", "minutes": 5, "ok": true, "dry_run": true,
- "would_send": [{"code": "switch", "value": true}, {"code": "countdown_1", "value": 300}]}
-```
-
-Confirm the `code` values match the DP codes visible in the Tuya IoT "Device Debugging" panel. If they differ, update `switch_dp` and `countdown_dp` in `garden.config.json`.
+Confirm the DP codes (`switch_dp`/`countdown_dp`) in the MCP's `config.json` match
+the Tuya IoT "Device Debugging" panel. The Tuya key lives only in the sidecar.
 
 ---
 
-## Environment Variables Required
+## Environment Variables
+
+The **agent** (this CLI) needs only the read-only planning vars — **no Tuya
+credential**:
 
 | Variable | Description |
 |---|---|
-| `TUYA_CLIENT_ID` | Tuya Cloud project client ID |
-| `TUYA_CLIENT_SECRET` | Tuya Cloud project client secret |
-| `TUYA_REGION` | Region: `us`, `eu`, `cn`, or `in` (default: `us`) |
-| `GARDEN_CONFIG` | Path to `garden.config.json` (default: `garden.config.json` in CWD) |
-| `GARDEN_STATE` | Path to state directory (default: `~/.openclaw/garden`) |
+| `GARDEN_CONFIG` | Path to `garden.config.json` for planning (zones, targets, `prometheus_url`) |
 
-`garden sensors`, `garden weather`, and `garden plan` do not require Tuya env vars.
-`garden water` and `garden status` require all three Tuya vars.
+The **`garden-tuya` MCP sidecar** holds everything secret/stateful (set on the
+sidecar container only, never on the agent): `TUYA_CLIENT_ID`,
+`TUYA_CLIENT_SECRET`, plus `GARDEN_MCP_CONFIG` (caps + timezone) and
+`GARDEN_MCP_STATE` (budget volume).
+
+`garden sensors`, `garden weather`, and `garden plan` are read-only and require no
+Tuya credential. Valve actions (`water_zone`/`stop_zone`/`get_zone_status`) are MCP
+tools served by the sidecar, which is the only component with the Tuya key.
 
 ---
 
