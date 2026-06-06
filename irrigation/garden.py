@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""garden — weather-aware irrigation CLI for the OpenClaw agent.
+"""garden — weather-aware irrigation CLI for the OpenClaw agent (read-only).
 
-Self-contained, stdlib-only. Subcommands: sensors, weather, plan, water, status.
-Safety-critical logic (formula, caps, valve commands) lives here, not in prompts.
+Self-contained, stdlib-only. Subcommands: sensors, weather, plan.
+This CLI holds NO Tuya credential and has NO valve code path — all valve
+actions go through the garden-tuya-mcp sidecar (see irrigation/mcp/). It only
+reads Prometheus + Open-Meteo and emits a watering *proposal*; the MCP enforces
+caps and opens valves.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
-import hmac
 import json
 import os
 import sys
@@ -18,9 +19,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from garden_core import (
-    clamp_minutes, do_water, Tuya, TuyaError, tuya_string_to_sign, tuya_sign,
-)
+from garden_core import clamp_minutes
 
 __version__ = "0.1.0"
 
@@ -75,75 +74,6 @@ def plan_zone(*, zone, cfg, soil_pct, temp_c, stale, precip_12h_mm,
     return out(capped, reason)
 
 
-class State:
-    """JSON state persisted on OpenClaw's PVC (default ~/.openclaw/garden)."""
-    def __init__(self, base_dir):
-        self.dir = Path(base_dir)
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.dir / "state.json"
-
-    def _load(self) -> dict:
-        if self.path.exists():
-            try:
-                return json.loads(self.path.read_text())
-            except Exception:
-                return {}
-        return {}
-
-    def _save(self, d: dict) -> None:
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d, indent=2))
-        os.replace(tmp, self.path)
-
-    @staticmethod
-    def _day(now: float) -> str:
-        return time.strftime("%Y-%m-%d", time.gmtime(now))
-
-    def watered_today(self, zone: str, now: float) -> float:
-        d = self._load()
-        rec = d.get("watered", {}).get(zone, {})
-        return float(rec.get("minutes", 0)) if rec.get("day") == self._day(now) else 0.0
-
-    def add_watered(self, zone: str, minutes: float, now: float) -> None:
-        d = self._load()
-        w = d.setdefault("watered", {})
-        rec = w.get(zone, {})
-        cur = float(rec.get("minutes", 0)) if rec.get("day") == self._day(now) else 0.0
-        w[zone] = {"day": self._day(now), "minutes": cur + float(minutes)}
-        self._save(d)
-
-    def set_pending(self, plan, now: float, ttl_s: int = 7200) -> None:
-        d = self._load()
-        d["pending"] = {"plan": plan, "expires": now + ttl_s}
-        self._save(d)
-
-    def get_pending(self, now: float):
-        d = self._load()
-        p = d.get("pending")
-        if not p or now > p.get("expires", 0):
-            return None
-        return p["plan"]
-
-    def clear_pending(self) -> None:
-        d = self._load(); d.pop("pending", None); self._save(d)
-
-    def remove_pending_zone(self, zone: str) -> None:
-        d = self._load()
-        p = d.get("pending")
-        if not p:
-            return
-        p["plan"] = [e for e in p.get("plan", []) if e.get("zone") != zone]
-        if not p["plan"]:
-            d.pop("pending", None)
-        self._save(d)
-
-    def seen_run(self, key: str) -> bool:
-        return key in self._load().get("runs", [])
-
-    def mark_run(self, key: str) -> None:
-        d = self._load(); runs = d.setdefault("runs", [])
-        if key not in runs:
-            runs.append(key); self._save(d)
 
 
 def http_get_json(url: str) -> dict:
@@ -206,14 +136,6 @@ def _zone(cfg, name):
     raise SystemExit(f"unknown zone: {name}")
 
 
-def _tuya_from_env():
-    client_id = os.environ.get("TUYA_CLIENT_ID", "")
-    client_secret = os.environ.get("TUYA_CLIENT_SECRET", "")
-    if not client_id or not client_secret:
-        raise SystemExit("error: TUYA_CLIENT_ID and TUYA_CLIENT_SECRET must be set")
-    return Tuya(client_id, client_secret, region=os.environ.get("TUYA_REGION", "us"))
-
-
 def cmd_sensors(args, cfg):
     z = _zone(cfg, args.zone)
     print(json.dumps(read_sensors(z, prom_url=cfg["prometheus_url"], now=time.time())))
@@ -227,7 +149,6 @@ def cmd_weather(args, cfg):
 
 def cmd_plan(args, cfg):
     now = time.time()
-    st = State(args.state)
     weather = read_weather(lat=cfg["lat"], lon=cfg["lon"])
     out = []
     for z in cfg["zones"]:
@@ -235,53 +156,19 @@ def cmd_plan(args, cfg):
         out.append(plan_zone(zone=z, cfg=cfg, soil_pct=s["soil_pct"], temp_c=s["temp_c"],
                              stale=s["stale"], precip_12h_mm=weather["precip_12h_mm"],
                              precip_prob_pct=weather["precip_prob_pct"], et0_mm=weather["et0_mm"],
-                             run_phase=args.phase, watered_today=st.watered_today(z["name"], now)))
-    st.set_pending(out, now=now)
+                             run_phase=args.phase, watered_today=0.0))
     print(json.dumps(out))
     return 0
 
 
-def cmd_water(args, cfg):
-    now = time.time()
-    st = State(args.state)
-    z = _zone(cfg, args.zone)
-    if not args.dry_run and not args.force:
-        pending = st.get_pending(now) or []
-        match = next((e for e in pending if e.get("zone") == args.zone and e.get("minutes", 0) > 0), None)
-        if match is None:
-            raise SystemExit(f"error: no un-expired approved plan for zone {args.zone}; run 'garden plan' first")
-        if args.minutes > match["minutes"]:
-            raise SystemExit(f"error: requested {args.minutes}min exceeds approved {match['minutes']}min for zone {args.zone}")
-    tuya = _tuya_from_env()
-    if not args.dry_run:
-        tuya.token()
-    r = do_water(tuya, zone=z, minutes=args.minutes,
-                 watered_today=st.watered_today(z["name"], now), dry_run=args.dry_run)
-    if r.get("ok") and not args.dry_run and r["minutes"] > 0:
-        st.add_watered(z["name"], r["minutes"], now=now)
-        st.remove_pending_zone(z["name"])
-    print(json.dumps(r))
-    return 0 if r.get("ok") else 1
-
-
-def cmd_status(args, cfg):
-    z = _zone(cfg, args.zone)
-    tuya = _tuya_from_env()
-    tuya.token()
-    print(json.dumps(tuya.status(z["tuya_device_id"])))
-    return 0
-
-
 def main(argv=None):
-    # Shared options (--config/--state) are attached ONLY to subparsers via a
-    # common parent so they must appear after the subcommand name (e.g.
+    # Shared options (--config) are attached ONLY to subparsers via a common
+    # parent so they must appear after the subcommand name (e.g.
     # `garden plan --config foo.json`).  Adding them to the top-level parser
     # would let `garden --config X plan` silently use the wrong config because
     # the subparser default would win.
     _defaults = argparse.ArgumentParser(add_help=False)
     _defaults.add_argument("--config", default=os.environ.get("GARDEN_CONFIG", "garden.config.json"))
-    _defaults.add_argument("--state", default=os.environ.get("GARDEN_STATE",
-                           os.path.expanduser("~/.openclaw/garden")))
 
     p = argparse.ArgumentParser(prog="garden")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -294,21 +181,12 @@ def main(argv=None):
     pp = sub.add_parser("plan", parents=[_defaults])
     pp.add_argument("--phase", default="morning", choices=["morning", "midday", "evening"])
 
-    wp = sub.add_parser("water", parents=[_defaults])
-    wp.add_argument("--zone", required=True)
-    wp.add_argument("--minutes", type=int, required=True)
-    wp.add_argument("--dry-run", action="store_true")
-    wp.add_argument("--force", action="store_true")
-
-    stp = sub.add_parser("status", parents=[_defaults])
-    stp.add_argument("--zone", required=True)
-
     args = p.parse_args(argv)
     try:
         cfg = load_config(args.config)
-        return {"sensors": cmd_sensors, "weather": cmd_weather, "plan": cmd_plan,
-                "water": cmd_water, "status": cmd_status}[args.cmd](args, cfg)
-    except (OSError, urllib.error.URLError, TuyaError, json.JSONDecodeError, ValueError, TypeError) as e:
+        return {"sensors": cmd_sensors, "weather": cmd_weather,
+                "plan": cmd_plan}[args.cmd](args, cfg)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
