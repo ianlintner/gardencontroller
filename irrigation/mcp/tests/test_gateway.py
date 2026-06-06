@@ -78,3 +78,45 @@ def test_water_sends_token_and_commands_on_success(gateway, core, tmp_path):
     assert t.token_calls == 1
     codes = {c["code"]: c["value"] for (_, cmds) in t.sent for c in cmds}
     assert codes["switch"] is True and codes["countdown_1"] == 480
+
+
+class FakeTuyaNoCountdown(FakeTuya):
+    """Accepts commands but never reflects the countdown -> auto-off unconfirmed."""
+    def status(self, device_id):
+        s = dict(self._status)
+        s.pop("countdown_1", None)
+        return s
+
+
+def test_get_zone_status_passthrough(gateway, core, tmp_path):
+    t = FakeTuya()
+    t._status = {"switch": True, "countdown_1": 300}
+    svc, _ = _svc(gateway, core, tmp_path, tuya=t)
+    r = svc.get_zone_status("zone1")
+    assert r["ok"] is True and r["status"]["countdown_1"] == 300
+
+
+def test_get_status_unknown_zone(gateway, core, tmp_path):
+    svc, _ = _svc(gateway, core, tmp_path)
+    assert svc.get_zone_status("nope")["ok"] is False
+
+
+def test_stop_zone_sends_switch_off(gateway, core, tmp_path):
+    t = FakeTuya()
+    svc, _ = _svc(gateway, core, tmp_path, tuya=t)
+    r = svc.stop_zone("zone1")
+    assert r["ok"] is True
+    codes = {c["code"]: c["value"] for (_, cmds) in t.sent for c in cmds}
+    assert codes["switch"] is False
+
+
+def test_water_failsafe_when_countdown_unconfirmed(gateway, core, tmp_path):
+    t = FakeTuyaNoCountdown()
+    svc, _ = _svc(gateway, core, tmp_path, tuya=t)
+    r = svc.water_zone("zone1", 8)
+    assert r["ok"] is False and "failsafe OFF" in r["reason"]
+    # budget NOT charged on a failed run
+    assert svc.list_zones()[0]["watered_today"] == 0
+    # last command sent must be the failsafe OFF
+    last_codes = {c["code"]: c["value"] for c in t.sent[-1][1]}
+    assert last_codes["switch"] is False

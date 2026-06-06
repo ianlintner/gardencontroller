@@ -76,3 +76,24 @@ class GatewayService:
         return {"zone": zone, "requested": minutes, "granted": actual,
                 "ok": bool(r.get("ok")), "reason": reason,
                 "switch_confirmed": r.get("switch_confirmed")}
+
+    def get_zone_status(self, zone: str):
+        z = self.zones.get(zone)
+        if z is None:
+            self._log("get_zone_status", zone, None, None, "unknown zone", False)
+            return {"zone": zone, "ok": False, "reason": "unknown zone"}
+        self._ensure_token()
+        st = self.tuya.status(z["tuya_device_id"])
+        self._log("get_zone_status", zone, None, None, "ok", True)
+        return {"zone": zone, "ok": True, "status": st}
+
+    def stop_zone(self, zone: str):
+        z = self.zones.get(zone)
+        if z is None:
+            self._log("stop_zone", zone, None, None, "unknown zone", False)
+            return {"zone": zone, "ok": False, "reason": "unknown zone"}
+        self._ensure_token()
+        switch_dp = z.get("switch_dp", "switch")
+        self.tuya.send_commands(z["tuya_device_id"], [{"code": switch_dp, "value": False}])
+        self._log("stop_zone", zone, None, None, "valve closed", True)
+        return {"zone": zone, "ok": True}
