@@ -1,0 +1,10 @@
+{
+  "region": "us",
+  "timezone": "America/Chicago",
+  "zones": [
+    {"name": "zone1", "tuya_device_id": "REPLACE_DEVICE_ID_1", "switch_dp": "switch",
+     "countdown_dp": "countdown_1", "max_per_run": 15, "max_per_day": 30, "min_run": 1},
+    {"name": "zone2", "tuya_device_id": "REPLACE_DEVICE_ID_2", "switch_dp": "switch",
+     "countdown_dp": "countdown_1", "max_per_run": 15, "max_per_day": 30, "min_run": 1}
+  ]
+}
