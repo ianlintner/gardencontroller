@@ -1,4 +1,4 @@
-"""Input sources for the board TUI: simulate, replay, serial.
+"""Input sources for the board TUI: simulate, replay, serial, tcp.
 
 Each source is iterable and yields raw text lines (str). parse_frame() filters
 non-telemetry lines downstream, so sources may emit banner/log lines too.
@@ -8,6 +8,7 @@ from __future__ import annotations
 import glob
 import json
 import math
+import socket
 import time
 from pathlib import Path
 
@@ -129,5 +130,60 @@ class SerialSource:
                     sp.close()
                 except Exception:
                     pass
+            if self.reconnect_delay_s:
+                time.sleep(self.reconnect_delay_s)
+
+
+class TcpSource:
+    """Reads NDJSON telemetry lines from the board's TCP server.
+
+    Connects to host:port, yields decoded text lines, and reconnects forever
+    on any error — never raises. The TUI's staleness indicator covers gaps.
+    `connect_fn` is injectable for tests; default uses socket.create_connection.
+
+    The board uses newline-delimited frames, so we accumulate recv() chunks
+    into a line buffer and yield complete lines only.
+    """
+
+    def __init__(self, host: str, port: int = 8766, connect_fn=None,
+                 reconnect_delay_s: float = 1.0):
+        self.host = host
+        self.port = port
+        self.reconnect_delay_s = reconnect_delay_s
+        self._connect_fn = connect_fn or self._default_connect
+
+    def _default_connect(self):
+        return socket.create_connection((self.host, self.port), timeout=5)
+
+    def __iter__(self):
+        buf = b""
+        while True:
+            try:
+                sock = self._connect_fn()
+            except Exception:
+                if self.reconnect_delay_s:
+                    time.sleep(self.reconnect_delay_s)
+                buf = b""
+                continue
+            try:
+                while True:
+                    try:
+                        chunk = sock.recv(1024)
+                    except StopIteration:
+                        return
+                    except Exception:
+                        break   # error → reconnect
+                    if not chunk:
+                        break   # server closed → reconnect
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        yield line.decode(errors="replace")
+            finally:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+            buf = b""
             if self.reconnect_delay_s:
                 time.sleep(self.reconnect_delay_s)
