@@ -74,6 +74,51 @@ impl Frame {
     }
 }
 
+use std::io::Write;
+use std::net::{TcpListener, TcpStream};
+
+/// A non-blocking, single-client (newest-wins) line broadcaster.
+///
+/// `broadcast` accepts at most one pending connection per call (replacing any
+/// current client) and writes the line + '\n' to the current client. A write
+/// error drops the client; the next connection supersedes it. Designed to be
+/// called once per telemetry tick from a single thread. Uses only std::net,
+/// which ESP-IDF provides, so the logic is identical on host and device.
+pub struct TcpBroadcaster {
+    listener: TcpListener,
+    client: Option<TcpStream>,
+}
+
+impl TcpBroadcaster {
+    pub fn bind(addr: &str) -> std::io::Result<Self> {
+        let listener = TcpListener::bind(addr)?;
+        listener.set_nonblocking(true)?;
+        Ok(Self { listener, client: None })
+    }
+
+    pub fn local_port(&self) -> u16 {
+        self.listener.local_addr().map(|a| a.port()).unwrap_or(0)
+    }
+
+    pub fn broadcast(&mut self, line: &str) {
+        // Adopt a newly-connected client (newest-wins).
+        match self.listener.accept() {
+            Ok((stream, _)) => {
+                let _ = stream.set_nonblocking(true);
+                self.client = Some(stream);
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => {}
+        }
+        // Write to the current client; drop it on error.
+        if let Some(stream) = self.client.as_mut() {
+            if writeln!(stream, "{line}").is_err() {
+                self.client = None;
+            }
+        }
+    }
+}
+
 /// Parse a strict "MAJOR.MINOR.PATCH" string into a tuple. None if malformed.
 fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
     let mut it = s.trim().split('.');
@@ -139,5 +184,50 @@ mod version_tests {
         assert!(!version_is_newer("garbage", "1.0.0"));
         assert!(!version_is_newer("1.0", "1.0.0"));
         assert!(!version_is_newer("", "1.0.0"));
+    }
+}
+
+#[cfg(test)]
+mod broadcaster_tests {
+    use super::TcpBroadcaster;
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    #[test]
+    fn delivers_line_to_connected_client() {
+        let mut b = TcpBroadcaster::bind("127.0.0.1:0").unwrap();
+        let port = b.local_port();
+        let client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut reader = BufReader::new(client);
+
+        // First broadcast accepts the pending client; second is actually delivered.
+        b.broadcast("first");
+        b.broadcast("second");
+
+        let mut got = String::new();
+        reader.read_line(&mut got).unwrap();
+        assert!(got.starts_with("first") || got.starts_with("second"), "got: {got:?}");
+    }
+
+    #[test]
+    fn newest_client_wins() {
+        let mut b = TcpBroadcaster::bind("127.0.0.1:0").unwrap();
+        let port = b.local_port();
+
+        let c1 = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        c1.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        b.broadcast("x");                // adopt c1
+
+        let c2 = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        c2.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        b.broadcast("y");                // adopt c2 (newest wins), deliver to c2
+        b.broadcast("z");
+
+        let mut r2 = BufReader::new(c2);
+        let mut got = String::new();
+        r2.read_line(&mut got).unwrap();
+        assert!(!got.is_empty(), "newest client should receive frames");
     }
 }
