@@ -19,7 +19,7 @@ opt-level = "z"
 [dependencies]
 log = "0.4"
 anyhow = "1"
-embedded-svc = "0.28"
+embedded-svc = "0.29"
 esp-idf-svc = { version = "0.52.1", features = ["binstart"] }
 rover-core = { path = "../rover-core" }
 
