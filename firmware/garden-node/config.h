@@ -41,7 +41,7 @@
 
 // ─── OTA firmware update ──────────────────────────────────────────────────────
 // Bump FIRMWARE_VERSION when cutting a release (scripts/release-firmware.sh).
-#define FIRMWARE_VERSION "1.0.1"
+#define FIRMWARE_VERSION "1.0.2"
 #define OTA_VERSION_URL    "https://github.com/ianlintner/gardencontroller/releases/latest/download/version.txt"
 #define OTA_BINARY_URL     "https://github.com/ianlintner/gardencontroller/releases/latest/download/garden-node.ota"
 #define OTA_MAX_FAILURES   3      // skip OTA after this many consecutive failures
@@ -52,6 +52,12 @@
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print
 // to Serial so you can calibrate. Flip to 1 once net.cpp is wired (Phase 2).
 #define ENABLE_UPLOAD 0
+
+// ENABLE_TCP_VIEW: start WiFi and the LAN TCP telemetry server (port 8766)
+// even when ENABLE_UPLOAD=0. Lets board-tui --host connect over the LAN
+// without needing OAuth2 / Pushgateway configured.
+// Requires arduino_secrets.h with SECRET_WIFI_SSID / SECRET_WIFI_PASS.
+#define ENABLE_TCP_VIEW 1
 
 // ─── Pin map (UNO R4 WiFi) ───────────────────────────────────────────────────
 #define DHT_PIN       7     // DHT22 data (digital, single-wire; 10k pull-up to 3V3)

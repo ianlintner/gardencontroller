@@ -4,9 +4,11 @@
 #include "config.h"
 #include "sensors.h"
 #include <ArduinoJson.h>
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
 #include <WiFiS3.h>
+#if ENABLE_UPLOAD
 #include "net.h"
+#endif
 #endif
 
 static unsigned long s_lastFrameMs = 0;
@@ -15,7 +17,7 @@ static float s_tempC = NAN, s_hum = NAN;
 static bool  s_dhtOk = false;
 static const char* s_push = "n/a";
 
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
 static WiFiServer s_server(TELEMETRY_TCP_PORT);
 static WiFiClient s_client;
 #endif
@@ -30,7 +32,7 @@ static int freeRamBytes() {
 void telemetryBegin() {
   analogReadResolution(14);   // 0..16383, matches soil calibration
   s_lastFrameMs = millis() - TELEMETRY_MS;
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
   s_server.begin();
 #endif
 }
@@ -83,7 +85,7 @@ void telemetryTick() {
   }
 
   JsonObject net = doc["net"].to<JsonObject>();
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
   bool up = (WiFi.status() == WL_CONNECTED);
   net["wifi"] = up ? "up" : "down";
   net["rssi"] = up ? (int)WiFi.RSSI() : 0;
@@ -95,7 +97,7 @@ void telemetryTick() {
   } else {
     net["ip"] = "0.0.0.0";
   }
-  net["push"] = s_push;
+  net["push"] = s_push;   // "n/a" in view-only mode; "ok"/"fail" in upload mode
 #else
   net["wifi"] = "off";
   net["rssi"] = 0;
@@ -119,7 +121,7 @@ void telemetryTick() {
 
   Serial.println(buf);
 
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
   // Newest-wins: if a new client has connected, replace the current one.
   WiFiClient incoming = s_server.available();
   if (incoming) {

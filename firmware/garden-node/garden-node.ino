@@ -14,8 +14,10 @@
 #include "sensors.h"
 #include "display.h"
 #include "telemetry.h"
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
 #include "net.h"
+#endif
+#if ENABLE_UPLOAD
 #include "ota.h"
 #endif
 
@@ -32,14 +34,15 @@ void setup() {
   Serial.println("garden-node booting: " DEVICE_ID " @ " LOCATION);
 
   sensorsBegin();
-  telemetryBegin();
-#if ENABLE_UPLOAD
+#if ENABLE_UPLOAD || ENABLE_TCP_VIEW
   netBegin();
-  if (netEnsureWifi()) {
-    otaCheckAndApply();   // checks version, applies + reboots if update available
-  }
+  netEnsureWifi();   // connect WiFi; TCP view and/or cloud push need it
+#if ENABLE_UPLOAD
+  otaCheckAndApply();   // checks version, applies + reboots if update available
   lastOtaCheckMs = millis();
 #endif
+#endif
+  telemetryBegin();  // starts TCP server after WiFi is up
   lastSampleMs = millis() - SAMPLE_INTERVAL_MS;  // sample immediately on boot
 }
 
