@@ -13,12 +13,16 @@
 #include "config.h"
 #include "sensors.h"
 #include "display.h"
+#include "telemetry.h"
 #if ENABLE_UPLOAD
 #include "net.h"
 #include "ota.h"
 #endif
 
 static unsigned long lastSampleMs = 0;
+#if ENABLE_UPLOAD
+static unsigned long lastOtaCheckMs = 0;
+#endif
 
 void setup() {
   displayBegin();
@@ -28,17 +32,30 @@ void setup() {
   Serial.println("garden-node booting: " DEVICE_ID " @ " LOCATION);
 
   sensorsBegin();
+  telemetryBegin();
 #if ENABLE_UPLOAD
   netBegin();
   if (netEnsureWifi()) {
     otaCheckAndApply();   // checks version, applies + reboots if update available
   }
+  lastOtaCheckMs = millis();
 #endif
   lastSampleMs = millis() - SAMPLE_INTERVAL_MS;  // sample immediately on boot
 }
 
 void loop() {
   displayTick();   // advance the LED matrix animation every iteration (non-blocking)
+  telemetryTick(); // ~1 Hz NDJSON frame over Serial for board-tui (non-blocking)
+
+#if ENABLE_UPLOAD
+  // Periodic OTA poll: pick up a published release without a manual reboot.
+  if (millis() - lastOtaCheckMs >= OTA_CHECK_INTERVAL_MS) {
+    lastOtaCheckMs = millis();
+    if (netEnsureWifi()) {
+      otaCheckAndApply();   // applies + reboots if a newer version is published
+    }
+  }
+#endif
 
   if (millis() - lastSampleMs < SAMPLE_INTERVAL_MS) return;
   lastSampleMs = millis();
@@ -57,6 +74,7 @@ void loop() {
   // next cycle. Consider exponential backoff, a bounded retry burst, or storing
   // unsent readings while offline. Trade-off: data completeness vs. power/network.
   bool ok = netPublish(r);
+  telemetrySetPush(ok ? "ok" : "fail");
   if (!ok) Serial.println("publish failed; will retry next cycle");
 #endif
 }
