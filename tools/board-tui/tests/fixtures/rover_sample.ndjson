@@ -1,0 +1,1 @@
+{"t":12345,"fw":"r1.0.0","dev":"rover-node-1","pins":{},"sensors":{"camPresent":true,"camFps":0},"net":{"wifi":"up","rssi":-58,"ip":"192.168.1.50","push":"ok"},"board":{"up_s":1234,"heap_b":210000,"psram_b":3800000}}

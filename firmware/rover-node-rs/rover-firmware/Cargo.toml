@@ -1,0 +1,27 @@
+[package]
+name = "rover-firmware"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+rust-version = "1.82"
+
+[[bin]]
+name = "rover-firmware"
+harness = false
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+embedded-svc = "0.29"
+esp-idf-svc = { version = "0.52.1", features = ["binstart"] }
+rover-core = { path = "../rover-core" }
+
+[build-dependencies]
+embuild = "0.33"
