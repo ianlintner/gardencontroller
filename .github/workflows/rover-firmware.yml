@@ -47,7 +47,9 @@ jobs:
       - name: Produce flat binary
         working-directory: firmware/rover-node-rs/rover-firmware
         run: |
-          cargo install espflash --version "^3" || true
+          # espflash links libudev (serialport); install its system dep first.
+          sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+          cargo install espflash --version "^3" --locked
           espflash save-image --chip esp32 \
             target/xtensa-esp32-espidf/release/rover-firmware /tmp/garden-rover.bin
           ls -lh /tmp/garden-rover.bin
