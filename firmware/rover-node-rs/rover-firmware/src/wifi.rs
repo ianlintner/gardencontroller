@@ -8,7 +8,7 @@ use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configura
 use crate::config;
 
 pub fn connect(
-    modem: Modem,
+    modem: Modem<'static>,
     sysloop: EspSystemEventLoop,
     nvs: EspDefaultNvsPartition,
 ) -> Result<BlockingWifi<EspWifi<'static>>> {
