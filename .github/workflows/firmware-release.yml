@@ -25,8 +25,10 @@ jobs:
       - name: Set version
         id: version
         run: |
+          # On push: github.ref_name is the tag (e.g. "v1.0.1")
+          # On workflow_dispatch: github.ref_name is the branch; use the input tag
           TAG="${{ github.ref_name }}"
-          if [[ -z "$TAG" || "$TAG" == "refs/heads/"* ]]; then
+          if [[ "$TAG" != v* ]]; then
             TAG="${{ github.event.inputs.tag }}"
           fi
           VERSION="${TAG#v}"
