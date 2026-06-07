@@ -41,7 +41,7 @@
 
 // ─── OTA firmware update ──────────────────────────────────────────────────────
 // Bump FIRMWARE_VERSION when cutting a release (scripts/release-firmware.sh).
-#define FIRMWARE_VERSION   "1.0.1"
+#define FIRMWARE_VERSION "1.0.1"
 #define OTA_VERSION_URL    "https://github.com/ianlintner/gardencontroller/releases/latest/download/version.txt"
 #define OTA_BINARY_URL     "https://github.com/ianlintner/gardencontroller/releases/latest/download/garden-node.ota"
 #define OTA_MAX_FAILURES   3      // skip OTA after this many consecutive failures
