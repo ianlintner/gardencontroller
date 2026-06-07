@@ -68,17 +68,41 @@ jobs:
       - name: Install OTA conversion tool
         run: |
           pip install arduino-iot-cloud --quiet
-          python3 -c "import arduino_iot_cloud; print('arduino-iot-cloud OK')" || true
-          # Fetch the standalone lzss.py from ArduinoIoTCloud extras
-          curl -fsSL https://raw.githubusercontent.com/arduino-libraries/ArduinoIoTCloud/master/extras/tools/lzss.py \
-            -o /tmp/lzss.py
-          python3 /tmp/lzss.py --help 2>&1 | head -3 || true
+          # Locate lzss.py and its companion .so from the installed package
+          LZSS_PY=$(python3 -c "
+          import importlib.util, pathlib
+          spec = importlib.util.find_spec('arduino_iot_cloud')
+          if spec:
+              pkg = pathlib.Path(spec.origin).parent
+              candidates = list(pkg.rglob('lzss.py'))
+              print(candidates[0] if candidates else '')
+          ")
+          if [ -z "$LZSS_PY" ]; then
+            echo "lzss.py not found in arduino-iot-cloud, fetching from ArduinoIoTCloud repo"
+            curl -fsSL https://raw.githubusercontent.com/arduino-libraries/ArduinoIoTCloud/master/extras/tools/lzss.py \
+              -o /tmp/lzss.py
+            curl -fsSL https://raw.githubusercontent.com/arduino-libraries/ArduinoIoTCloud/master/extras/tools/lzss.so \
+              -o /tmp/lzss.so 2>/dev/null || true
+          else
+            cp "$LZSS_PY" /tmp/lzss.py
+            SO_DIR=$(dirname "$LZSS_PY")
+            cp "$SO_DIR"/lzss.so /tmp/lzss.so 2>/dev/null || \
+              cp "$SO_DIR"/lzss.dylib /tmp/lzss.so 2>/dev/null || true
+          fi
+          ls -lh /tmp/lzss.py /tmp/lzss.so 2>/dev/null || echo "lzss.so not found - will try gcc build"
+          # Build lzss.so from source if not available
+          if [ ! -f /tmp/lzss.so ]; then
+            curl -fsSL https://raw.githubusercontent.com/arduino-libraries/ArduinoIoTCloud/master/extras/tools/lzss.c \
+              -o /tmp/lzss.c
+            gcc -shared -fPIC -O2 -o /tmp/lzss.so /tmp/lzss.c
+            echo "Built lzss.so from source: $(ls -lh /tmp/lzss.so)"
+          fi
 
       - name: Convert .bin to .ota (LZSS compress)
         run: |
           BIN=$(ls /tmp/build/*.bin | head -1)
           echo "Binary: $BIN ($(wc -c < "$BIN") bytes)"
-          python3 /tmp/lzss.py --encode "$BIN" /tmp/garden-node.ota
+          cd /tmp && python3 /tmp/lzss.py --encode "$BIN" /tmp/garden-node.ota
           echo "OTA:    $(wc -c < /tmp/garden-node.ota) bytes"
 
       - name: Write version.txt
