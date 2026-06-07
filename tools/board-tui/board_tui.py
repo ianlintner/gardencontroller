@@ -2,12 +2,14 @@
 """board-tui — live terminal dashboard for the garden board's serial telemetry.
 
 Usage:
-  python board_tui.py                      # auto-detect serial port
-  python board_tui.py --port /dev/tty...   # explicit port
-  python board_tui.py --simulate           # no hardware
-  python board_tui.py --replay cap.ndjson  # replay a capture
-  python board_tui.py --record cap.ndjson  # tee live lines to a file
-  python board_tui.py --replay f --once    # render one snapshot and exit (CI)
+  python board_tui.py                        # auto-detect serial port
+  python board_tui.py --port /dev/tty...     # explicit serial port
+  python board_tui.py --host 192.168.1.42    # network (board TCP :8766)
+  python board_tui.py --host 192.168.1.42:9000  # custom port
+  python board_tui.py --simulate             # no hardware
+  python board_tui.py --replay cap.ndjson    # replay a capture
+  python board_tui.py --record cap.ndjson    # tee live lines to a file
+  python board_tui.py --replay f --once      # render one snapshot and exit (CI)
 """
 from __future__ import annotations
 
@@ -19,17 +21,25 @@ import time
 
 from frames import parse_frame
 from render import DashboardState, render_dashboard
-from sources import SimulateSource, ReplaySource, SerialSource, autodetect_port
+from sources import SimulateSource, ReplaySource, SerialSource, autodetect_port, TcpSource
 
 
 def _build_source(args):
+    if getattr(args, "host", None):
+        raw = args.host
+        if ":" in raw:
+            host, port_s = raw.rsplit(":", 1)
+            port = int(port_s)
+        else:
+            host, port = raw, 8766
+        return TcpSource(host, port), f"tcp:{host}:{port}"
     if args.simulate:
         return SimulateSource(interval_s=0.0 if args.once else 1.0), "SIM"
     if args.replay:
         return ReplaySource(args.replay, realtime=not args.once), f"replay:{args.replay}"
     port = args.port or autodetect_port()
     if not port:
-        print("No serial port found. Plug in the board or use --simulate / --replay.",
+        print("No serial port found. Use --host <ip>, --simulate, or --replay.",
               file=sys.stderr)
         sys.exit(2)
     return SerialSource(port, baud=args.baud), f"serial:{port}"
@@ -81,6 +91,8 @@ def run_live(source, label, record_fp) -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="board-tui")
     p.add_argument("--port"); p.add_argument("--baud", type=int, default=115200)
+    p.add_argument("--host", default=None,
+                   help="Board IP[:port] for network telemetry (default port 8766)")
     p.add_argument("--simulate", action="store_true")
     p.add_argument("--replay")
     p.add_argument("--record")
