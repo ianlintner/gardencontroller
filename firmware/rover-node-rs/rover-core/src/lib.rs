@@ -74,6 +74,27 @@ impl Frame {
     }
 }
 
+/// Parse a strict "MAJOR.MINOR.PATCH" string into a tuple. None if malformed.
+fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    let mut it = s.trim().split('.');
+    let a = it.next()?.parse().ok()?;
+    let b = it.next()?.parse().ok()?;
+    let c = it.next()?.parse().ok()?;
+    if it.next().is_some() {
+        return None; // more than 3 components
+    }
+    Some((a, b, c))
+}
+
+/// True iff `latest` is a strictly newer semver than `current`.
+/// Any malformed input returns false (fail safe: don't OTA on garbage).
+pub fn version_is_newer(latest: &str, current: &str) -> bool {
+    match (parse_semver(latest), parse_semver(current)) {
+        (Some(l), Some(c)) => l > c,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod frame_tests {
     use super::*;
@@ -97,5 +118,26 @@ mod frame_tests {
         assert_eq!(v["sensors"]["camPresent"], serde_json::json!(true));
         assert_eq!(v["board"]["psram_b"], serde_json::json!(3_800_000));
         assert_eq!(v["dev"], serde_json::json!("rover-node-1"));
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_is_newer;
+
+    #[test]
+    fn compares_semver() {
+        assert!(version_is_newer("1.0.1", "1.0.0"));
+        assert!(version_is_newer("1.1.0", "1.0.9"));
+        assert!(version_is_newer("2.0.0", "1.9.9"));
+        assert!(!version_is_newer("1.0.0", "1.0.0"));
+        assert!(!version_is_newer("1.0.0", "1.0.1"));
+    }
+
+    #[test]
+    fn malformed_is_not_newer() {
+        assert!(!version_is_newer("garbage", "1.0.0"));
+        assert!(!version_is_newer("1.0", "1.0.0"));
+        assert!(!version_is_newer("", "1.0.0"));
     }
 }
