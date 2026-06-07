@@ -1,8 +1,8 @@
-mod config;
-mod wifi;
 mod camera;
 mod cloud;
+mod config;
 mod ota;
+mod wifi;
 
 use std::time::Instant;
 
@@ -18,15 +18,17 @@ fn free_heap() -> i64 {
 }
 
 fn free_psram() -> i64 {
-    unsafe {
-        esp_idf_svc::sys::heap_caps_get_free_size(esp_idf_svc::sys::MALLOC_CAP_SPIRAM) as i64
-    }
+    unsafe { esp_idf_svc::sys::heap_caps_get_free_size(esp_idf_svc::sys::MALLOC_CAP_SPIRAM) as i64 }
 }
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
-    info!("rover-node booting: {} fw r{}", config::DEVICE_ID, config::FIRMWARE_VERSION);
+    info!(
+        "rover-node booting: {} fw r{}",
+        config::DEVICE_ID,
+        config::FIRMWARE_VERSION
+    );
 
     let peripherals = Peripherals::take()?;
     let sysloop = EspSystemEventLoop::take()?;
@@ -56,7 +58,11 @@ fn main() -> anyhow::Result<()> {
                 wifi_state,
                 rssi,
                 &ip,
-                if config::ENABLE_UPLOAD { &push_status } else { "n/a" },
+                if config::ENABLE_UPLOAD {
+                    &push_status
+                } else {
+                    "n/a"
+                },
             )
             .with_board(boot.elapsed().as_secs(), free_heap(), free_psram());
             let line = frame.to_ndjson();
