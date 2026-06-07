@@ -15,6 +15,11 @@ static float s_tempC = NAN, s_hum = NAN;
 static bool  s_dhtOk = false;
 static const char* s_push = "n/a";
 
+#if ENABLE_UPLOAD
+static WiFiServer s_server(TELEMETRY_TCP_PORT);
+static WiFiClient s_client;
+#endif
+
 // Approx free RAM on the RA4M1 (newlib): gap between heap end and stack top.
 extern "C" char* sbrk(int incr);
 static int freeRamBytes() {
@@ -25,6 +30,9 @@ static int freeRamBytes() {
 void telemetryBegin() {
   analogReadResolution(14);   // 0..16383, matches soil calibration
   s_lastFrameMs = millis() - TELEMETRY_MS;
+#if ENABLE_UPLOAD
+  s_server.begin();
+#endif
 }
 
 void telemetrySetPush(const char* status) { s_push = status ? status : "n/a"; }
@@ -99,6 +107,30 @@ void telemetryTick() {
   board["up_s"] = now / 1000UL;
   board["heap_b"] = freeRamBytes();
 
-  serializeJson(doc, Serial);
-  Serial.println();
+  // Serialise once into a fixed stack buffer, then write to Serial and TCP client.
+  char buf[512];
+  size_t n = serializeJson(doc, buf, sizeof(buf));
+  if (n == 0 || n >= sizeof(buf)) {
+    // Truncation guard: fall back to direct Serial write and skip TCP.
+    serializeJson(doc, Serial);
+    Serial.println();
+    return;
+  }
+
+  Serial.println(buf);
+
+#if ENABLE_UPLOAD
+  // Newest-wins: if a new client has connected, replace the current one.
+  WiFiClient incoming = s_server.available();
+  if (incoming) {
+    s_client.stop();
+    s_client = incoming;
+  }
+  // Drain any bytes the client sent (read-only stream; we don't parse commands).
+  while (s_client && s_client.available()) s_client.read();
+  // Write the frame to the connected client, if any.
+  if (s_client && s_client.connected()) {
+    s_client.println(buf);
+  }
+#endif
 }

@@ -37,6 +37,7 @@
 // Live telemetry stream (USB serial NDJSON for the board-tui client)
 #define TELEMETRY_MS         1000UL   // NDJSON serial frame interval (live view)
 #define TELEMETRY_DHT_MIN_MS 2500UL   // DHT22 can't sustain 1Hz; re-read at most this often
+#define TELEMETRY_TCP_PORT   8766     // TCP port for the network live view (LAN only)
 
 // ─── OTA firmware update ──────────────────────────────────────────────────────
 // Bump FIRMWARE_VERSION when cutting a release (scripts/release-firmware.sh).
