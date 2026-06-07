@@ -41,3 +41,18 @@ def test_marks_stale_when_no_recent_frame():
     st.update(FRAME, now=100.0)
     text = _render_to_text(render_dashboard(st, now=110.0))  # 10s later
     assert "stale" in text.lower()
+
+
+import subprocess, sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_once_replay_exits_zero_and_prints():
+    fix = ROOT / "tests" / "fixtures" / "sample.ndjson"
+    r = subprocess.run([sys.executable, str(ROOT / "board_tui.py"),
+                        "--replay", str(fix), "--once"],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert "garden-node-1" in r.stdout
