@@ -34,13 +34,18 @@
 #define TEMP_MIN_C  0.0f     // temp bar range
 #define TEMP_MAX_C  40.0f
 
+// Live telemetry stream (USB serial NDJSON for the board-tui client)
+#define TELEMETRY_MS         1000UL   // NDJSON serial frame interval (live view)
+#define TELEMETRY_DHT_MIN_MS 2500UL   // DHT22 can't sustain 1Hz; re-read at most this often
+
 // ─── OTA firmware update ──────────────────────────────────────────────────────
 // Bump FIRMWARE_VERSION when cutting a release (scripts/release-firmware.sh).
-#define FIRMWARE_VERSION   "1.0.0"
+#define FIRMWARE_VERSION   "1.0.1"
 #define OTA_VERSION_URL    "https://github.com/ianlintner/gardencontroller/releases/latest/download/version.txt"
 #define OTA_BINARY_URL     "https://github.com/ianlintner/gardencontroller/releases/latest/download/garden-node.ota"
 #define OTA_MAX_FAILURES   3      // skip OTA after this many consecutive failures
 #define OTA_EEPROM_OFFSET  0      // byte address of the failure counter in virtual EEPROM
+#define OTA_CHECK_INTERVAL_MS 300000UL  // periodic OTA poll (5 min) while running
 
 // ─── Feature flags ───────────────────────────────────────────────────────────
 // Phase 0 (bench bring-up) runs with uploads OFF: just read sensors and print

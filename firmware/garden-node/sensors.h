@@ -25,6 +25,10 @@ void sensorsBegin();
 Reading sensorsRead();
 void sensorsPrint(const Reading& r);  // Phase 0 Serial dump
 
+// Lightweight DHT read for the live telemetry stream (no soil/rain work).
+// Returns true on a successful read; writes tempC/hum on success.
+bool sensorsReadDht(float& tempC, float& hum);
+
 // ─── Contribution points (see docs/calibration.md) ──────────────────────────
 float soilMoisturePercent(int raw);   // TODO(you) #1: map raw ADC → 0..100
 bool  classifyRainDetected(int raw);  // TODO(you) #2: threshold for "raining"

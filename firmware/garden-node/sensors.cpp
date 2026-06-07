@@ -3,6 +3,14 @@
 
 static DHT dht(DHT_PIN, DHT_TYPE);
 
+bool sensorsReadDht(float& tempC, float& hum) {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  if (isnan(t) || isnan(h)) return false;
+  tempC = t; hum = h;
+  return true;
+}
+
 // Read the UNO R4's 14-bit ADC (0..16383). We bump resolution in begin().
 static int readAdc(uint8_t pin) {
   // Median of 5 reads to shrug off electrical noise on long sensor leads.
