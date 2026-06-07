@@ -194,6 +194,16 @@ mod broadcaster_tests {
     use std::net::TcpStream;
     use std::time::Duration;
 
+    /// Broadcast `line` repeatedly so the non-blocking accept is guaranteed to
+    /// adopt the pending client (loopback connect-readiness can lag a tick or
+    /// two). Deterministic for tests; on-device, frames simply flow every second.
+    fn pump(b: &mut TcpBroadcaster, line: &str) {
+        for _ in 0..50 {
+            b.broadcast(line);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn delivers_line_to_connected_client() {
         let mut b = TcpBroadcaster::bind("127.0.0.1:0").unwrap();
@@ -202,13 +212,11 @@ mod broadcaster_tests {
         client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         let mut reader = BufReader::new(client);
 
-        // First broadcast accepts the pending client; second is actually delivered.
-        b.broadcast("first");
-        b.broadcast("second");
+        pump(&mut b, "frame");
 
         let mut got = String::new();
         reader.read_line(&mut got).unwrap();
-        assert!(got.starts_with("first") || got.starts_with("second"), "got: {got:?}");
+        assert!(got.starts_with("frame"), "expected a delivered frame, got: {got:?}");
     }
 
     #[test]
@@ -216,14 +224,12 @@ mod broadcaster_tests {
         let mut b = TcpBroadcaster::bind("127.0.0.1:0").unwrap();
         let port = b.local_port();
 
-        let c1 = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        c1.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
-        b.broadcast("x");                // adopt c1
+        let _c1 = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        pump(&mut b, "x"); // adopt c1
 
         let c2 = TcpStream::connect(("127.0.0.1", port)).unwrap();
         c2.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        b.broadcast("y");                // adopt c2 (newest wins), deliver to c2
-        b.broadcast("z");
+        pump(&mut b, "y"); // adopt c2 (newest wins), deliver to c2
 
         let mut r2 = BufReader::new(c2);
         let mut got = String::new();
